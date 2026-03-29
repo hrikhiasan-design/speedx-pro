@@ -229,13 +229,23 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
 .shdr{font-family:'Orbitron',monospace;font-size:10px;color:var(--muted);letter-spacing:3px;padding-bottom:8px;border-bottom:1px solid var(--border);margin-bottom:10px;}
 .toast{position:fixed;bottom:85px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--card);border:1px solid var(--neon);border-radius:12px;padding:10px 20px;font-family:'Orbitron',monospace;font-size:11px;color:var(--neon);letter-spacing:1px;z-index:998;opacity:0;transition:all 0.3s;pointer-events:none;white-space:nowrap;}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+/* PC LAYOUT */
+@media(min-width:768px){
+  body{display:flex;justify-content:center;align-items:flex-start;background:#010508;}
+  .screen{width:430px;box-shadow:0 0 80px rgba(0,245,255,0.08),0 0 2px rgba(0,245,255,0.3);}
+  #screen-login{width:430px;}
+  .bnav{width:430px;left:50%;transform:translateX(-50%);}
+  .toast{left:50%;}
+}
+.back-btn{background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--muted);font-family:'Orbitron',monospace;font-size:10px;padding:5px 12px;cursor:pointer;letter-spacing:1px;transition:all 0.2s;}
+.back-btn:hover{border-color:var(--neon);color:var(--neon);}
 </style>
 </head>
 <body>
 
 <div class="lov" id="loader">
   <div class="spin"></div>
-  <div class="ltxt" id="ltxt">SPEEDX PRO LOAD HO RAHA HAI...<br><br>ðŸ“¶ Internet connection chahiye<br>Firebase connect ho raha hai...</div>
+  <div class="ltxt" id="ltxt">SPEEDX PRO LOADING...<br><br>Internet connection required<br>Connecting to Firebase...</div>
 </div>
 <div class="toast" id="toast"></div>
 
@@ -271,17 +281,17 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
 <!-- MAIN APP -->
 <div class="screen" id="screen-app">
   <div class="bnav">
-    <div class="ni on" onclick="showPg('speedo')" id="nav-speedo"><div class="nii">ðŸŽï¸</div><div class="nil">SPEED</div></div>
-    <div class="ni" onclick="showPg('history')" id="nav-history"><div class="nii">ðŸ“‹</div><div class="nil">HISTORY</div></div>
-    <div class="ni" onclick="showPg('leaderboard')" id="nav-leaderboard"><div class="nii">ðŸ†</div><div class="nil">RANKS</div></div>
-    <div class="ni" onclick="showPg('profile')" id="nav-profile"><div class="nii">ðŸ‘¤</div><div class="nil">PROFILE</div></div>
+    <div class="ni on" onclick="showPg('speedo')" id="nav-speedo"><div class="nii">&#9654;</div><div class="nil">SPEED</div></div>
+    <div class="ni" onclick="showPg('history')" id="nav-history"><div class="nii">&#9776;</div><div class="nil">HISTORY</div></div>
+    <div class="ni" onclick="showPg('leaderboard')" id="nav-leaderboard"><div class="nii">&#9733;</div><div class="nil">RANKS</div></div>
+    <div class="ni" onclick="showPg('profile')" id="nav-profile"><div class="nii">&#9673;</div><div class="nil">PROFILE</div></div>
   </div>
 
   <!-- SPEEDO -->
   <div id="page-speedo" style="display:flex;flex-direction:column;flex:1;overflow-y:auto;padding-bottom:70px;">
     <div class="tbar"><div class="tlogo">SPEED<span>X</span></div><div class="uchip" onclick="showPg('profile')"><div class="uav" id="tav">K</div><div class="unm" id="tnm">USER</div></div></div>
     <div class="pb">
-      <div class="adtop"><span class="atag">AD</span><span class="atxt">âš¡ Tata Nexon EV â€” â‚¹14.99L Â· Book Now!</span><button class="acta">BOOK</button></div>
+      <div class="adtop"><span class="atag">AD</span><span class="atxt">Tata Nexon EV â€” Rs.14.99L Â· Book Now!</span><button class="acta">BOOK</button></div>
       <div class="abar" id="abar"><span style="font-size:20px;">âš ï¸</span><div class="atxt2">SPEED LIMIT EXCEEDED!</div></div>
       <div class="scard">
         <div class="gwrap"><canvas id="gauge" width="250" height="145"></canvas><div class="gctr"><div class="snum" id="snum">0</div><div class="sunit">KM/H</div></div></div>
@@ -297,31 +307,31 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
         <div class="stc"><div class="stv" id="stime">00:00</div><div class="stl">TIME</div></div>
         <div class="stc"><div class="stv" id="smax">0</div><div class="stl">MAX KMH</div></div>
       </div>
-      <div class="mc"><div class="mh"><div class="mht">ðŸ“ GPS LIVE</div><div class="mco" id="mco">---, ---</div></div><div class="mf"><div class="mpin"></div><div class="ms" id="mst">GPS signal dhundh raha hai...</div></div></div>
+      <div class="mc"><div class="mh"><div class="mht">GPS LIVE</div><div class="mco" id="mco">---, ---</div></div><div class="mf"><div class="mpin"></div><div class="ms" id="mst">GPS signal searching...</div></div></div>
       <div class="tbtns">
-        <button class="tbtn2 bst" id="bstart" onclick="startTrip()">â–¶ START</button>
-        <button class="tbtn2 bsp" id="bstop" onclick="stopTrip()" disabled>â–  STOP</button>
-        <button class="brs" onclick="resetTrip()">â†º</button>
+        <button class="tbtn2 bst" id="bstart" onclick="startTrip()">&#9654; START</button>
+        <button class="tbtn2 bsp" id="bstop" onclick="stopTrip()" disabled>&#9632; STOP</button>
+        <button class="brs" onclick="resetTrip()">RESET</button>
       </div>
-      <div class="adbot"><div class="adbl">ADVERTISEMENT</div><div class="adbt">ðŸš— EV Insurance Compare Â· SaveMore.in</div></div>
+      <div class="adbot"><div class="adbl">ADVERTISEMENT</div><div class="adbt">EV Insurance Compare Â· SaveMore.in</div></div>
     </div>
   </div>
 
   <!-- HISTORY -->
   <div id="page-history" style="display:none;flex-direction:column;flex:1;overflow-y:auto;padding-bottom:70px;">
-    <div class="tbar"><div class="tlogo">SPEED<span>X</span></div><div style="font-family:'Orbitron',monospace;font-size:10px;color:var(--muted);letter-spacing:2px;">HISTORY</div></div>
+    <div class="tbar"><div class="tlogo">SPEED<span>X</span></div><button class="back-btn" onclick="showPg('speedo')">&#8592; BACK</button><div style="font-family:'Orbitron',monospace;font-size:10px;color:var(--muted);letter-spacing:2px;">HISTORY</div></div>
     <div class="pb">
-      <div class="adtop"><span class="atag">AD</span><span class="atxt">ðŸ›¡ï¸ Bike Insurance â‚¹714/yr Â· PolicyBazaar</span><button class="acta">GET</button></div>
-      <div class="shdr">ðŸ“‹ RECENT TRIPS</div>
+      <div class="adtop"><span class="atag">AD</span><span class="atxt">Bike Insurance Rs.714/yr Â· PolicyBazaar</span><button class="acta">GET</button></div>
+      <div class="shdr">RECENT TRIPS</div>
       <div id="hlist"><div class="hempty"><div class="big">â³</div><p>LOAD HO RAHA HAI...</p></div></div>
     </div>
   </div>
 
   <!-- LEADERBOARD -->
   <div id="page-leaderboard" style="display:none;flex-direction:column;flex:1;overflow-y:auto;padding-bottom:70px;">
-    <div class="tbar"><div class="tlogo">SPEED<span>X</span></div><div style="font-family:'Orbitron',monospace;font-size:10px;color:var(--muted);letter-spacing:2px;">LEADERBOARD</div></div>
+    <div class="tbar"><div class="tlogo">SPEED<span>X</span></div><button class="back-btn" onclick="showPg('speedo')">&#8592; BACK</button><div style="font-family:'Orbitron',monospace;font-size:10px;color:var(--muted);letter-spacing:2px;">LEADERBOARD</div></div>
     <div class="pb">
-      <div class="lbh"><div class="lbt2">ðŸ† TOP SPEEDERS</div><div class="lbs">Real users Â· Live Firebase â˜ï¸</div></div>
+      <div class="lbh"><div class="lbt2">TOP SPEEDERS</div><div class="lbs">Real users Â· Live Firebase</div></div>
       <div class="lbts">
         <button class="lbtt on" onclick="lbSw(this,'maxSpeed')">MAX SPEED</button>
         <button class="lbtt" onclick="lbSw(this,'totalDist')">DISTANCE</button>
@@ -333,7 +343,7 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
 
   <!-- PROFILE -->
   <div id="page-profile" style="display:none;flex-direction:column;flex:1;overflow-y:auto;padding-bottom:70px;">
-    <div class="tbar"><div class="tlogo">SPEED<span>X</span></div><div style="font-family:'Orbitron',monospace;font-size:10px;color:var(--muted);letter-spacing:2px;">PROFILE</div></div>
+    <div class="tbar"><div class="tlogo">SPEED<span>X</span></div><button class="back-btn" onclick="showPg('speedo')">&#8592; BACK</button><div style="font-family:'Orbitron',monospace;font-size:10px;color:var(--muted);letter-spacing:2px;">PROFILE</div></div>
     <div class="pb">
       <div class="ph"><div class="pab" id="pav">K</div><div class="pun" id="pnm">USER</div><div class="pem" id="pem"></div></div>
       <div class="shdr">ðŸ“Š MY STATS</div>
@@ -377,8 +387,8 @@ function initG(){gC=document.getElementById('gauge').getContext('2d');drG(0);}
 function drG(s){const c=gC;c.clearRect(0,0,250,145);const r=Math.min(s/MX,1),lr=Math.min(sl/MX,1),la=SA+(EA-SA)*lr,sa2=SA+(EA-SA)*r;c.beginPath();c.arc(CX,CY,R,SA,EA);c.strokeStyle='#0d1f3a';c.lineWidth=13;c.lineCap='round';c.stroke();for(let i=0;i<=20;i++){const a=SA+(EA-SA)*(i/20);c.beginPath();c.moveTo(CX+Math.cos(a)*(R-14),CY+Math.sin(a)*(R-14));c.lineTo(CX+Math.cos(a)*(i%5===0?R-4:R-9),CY+Math.sin(a)*(i%5===0?R-4:R-9));c.strokeStyle=i%5===0?'rgba(0,245,255,0.45)':'rgba(0,245,255,0.15)';c.lineWidth=i%5===0?2:1;c.stroke();}c.beginPath();c.arc(CX,CY,R,SA,la);c.strokeStyle='#00ff88';c.lineWidth=10;c.lineCap='butt';c.stroke();c.beginPath();c.arc(CX,CY,R,la,EA);c.strokeStyle='rgba(255,59,59,0.2)';c.lineWidth=10;c.stroke();if(r>0){const g=c.createLinearGradient(CX-R,CY,CX+R,CY);if(s>sl){g.addColorStop(0,'#ffaa00');g.addColorStop(1,'#ff3b3b');}else{g.addColorStop(0,'#00f5ff');g.addColorStop(1,'#00f5ff');}c.beginPath();c.arc(CX,CY,R,SA,sa2);c.strokeStyle=g;c.lineWidth=10;c.lineCap='round';c.stroke();c.save();c.shadowColor=s>sl?'#ff3b3b':'#00f5ff';c.shadowBlur=18;c.beginPath();c.arc(CX,CY,R,SA,sa2);c.strokeStyle=s>sl?'rgba(255,59,59,0.35)':'rgba(0,245,255,0.35)';c.lineWidth=4;c.stroke();c.restore();c.beginPath();c.arc(CX+Math.cos(sa2)*R,CY+Math.sin(sa2)*R,6,0,Math.PI*2);c.fillStyle=s>sl?'#ff3b3b':'#00f5ff';c.shadowColor=s>sl?'#ff3b3b':'#00f5ff';c.shadowBlur=20;c.fill();c.shadowBlur=0;}}
 
 let sl=80,cs=0,ms=0,td=0,tr=false,ts=null,tiv=null,div=null,pp2=null,sh=[],iD=false;
-function reqGPS(){if(!navigator.geolocation){dMode();return;}navigator.geolocation.getCurrentPosition(()=>{navigator.geolocation.watchPosition(pos=>{const{latitude:la,longitude:lo,speed:sp}=pos.coords;const k=sp!=null?sp*3.6:0;updS(k);if(pp2&&tr){td+=hav(pp2.la,pp2.lo,la,lo);document.getElementById('sdist').textContent=td.toFixed(2);}pp2={la,lo};document.getElementById('mco').textContent=`${la.toFixed(4)}, ${lo.toFixed(4)}`;},()=>dMode(),{enableHighAccuracy:true,maximumAge:1000,timeout:10000});document.getElementById('mst').textContent='GPS Signal Locked âœ“';document.getElementById('mst').style.color='var(--green)';},()=>dMode());}
-function dMode(){iD=true;document.getElementById('mst').textContent='Demo Mode ðŸŽ®';document.getElementById('mst').style.color='var(--warn)';document.getElementById('mco').textContent='22.1234, 88.4567';}
+function reqGPS(){if(!navigator.geolocation){dMode();return;}navigator.geolocation.getCurrentPosition(()=>{navigator.geolocation.watchPosition(pos=>{const{latitude:la,longitude:lo,speed:sp}=pos.coords;const k=sp!=null?sp*3.6:0;updS(k);if(pp2&&tr){td+=hav(pp2.la,pp2.lo,la,lo);document.getElementById('sdist').textContent=td.toFixed(2);}pp2={la,lo};document.getElementById('mco').textContent=`${la.toFixed(4)}, ${lo.toFixed(4)}`;},()=>dMode(),{enableHighAccuracy:true,maximumAge:1000,timeout:10000});document.getElementById('mst').textContent='GPS Signal Locked';document.getElementById('mst').style.color='var(--green)';},()=>dMode());}
+function dMode(){iD=true;document.getElementById('mst').textContent='Demo Mode - GPS not found';document.getElementById('mst').style.color='var(--warn)';document.getElementById('mco').textContent='22.1234, 88.4567';}
 function updS(s){cs=Math.round(s);const p=n=>String(n).padStart(3,'0');document.getElementById('snum').textContent=cs;document.getElementById('dspd').textContent=p(cs);if(cs>ms){ms=cs;document.getElementById('dmax').textContent=p(ms);document.getElementById('smax').textContent=ms;}if(tr)sh.push(cs);const avg=sh.length?Math.round(sh.reduce((a,b)=>a+b,0)/sh.length):0;document.getElementById('davg').textContent=p(avg);const el=document.getElementById('snum');if(cs>sl){el.style.color='var(--danger)';el.style.textShadow='0 0 30px var(--danger)';document.getElementById('abar').classList.add('show');}else{el.style.color='var(--neon)';el.style.textShadow='0 0 30px var(--neon)';document.getElementById('abar').classList.remove('show');}drG(cs);}
 function hav(a,b,c,d){const R=6371,dL=(c-a)*Math.PI/180,dO=(d-b)*Math.PI/180;const x=Math.sin(dL/2)**2+Math.cos(a*Math.PI/180)*Math.cos(c*Math.PI/180)*Math.sin(dO/2)**2;return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));}
 function cLim(d){sl=Math.max(20,Math.min(200,sl+d));document.getElementById('lv').textContent=sl;drG(cs);}
