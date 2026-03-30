@@ -4,412 +4,272 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="mobile-web-app-capable" content="yes">
-<title>SpeedX Pro v5</title>
-<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>SpeedX Pro</title>
+
+<!-- Fonts -->
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">
+
+<!-- Leaflet CSS -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+<!-- Firebase (compat version â€” works on Android 9+) -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+<!-- Leaflet JS -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<!-- Chart.js -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<!-- Firebase v12 -->
-<script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js";
-import { getAuth, signInWithPopup, GoogleAuthProvider, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
-import { getFirestore, doc, setDoc, getDoc, collection, addDoc, query, where, orderBy, limit, getDocs, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
 
-const firebaseConfig = {
-  apiKey: "AIzaSyBNXyjGaSkkZHDDe3ODD_El7CamAldvhhA",
-  authDomain: "speedx-pro.firebaseapp.com",
-  projectId: "speedx-pro",
-  storageBucket: "speedx-pro.firebasestorage.app",
-  messagingSenderId: "251310953968",
-  appId: "1:251310953968:web:72cb57efb345aa9c8d7935",
-  measurementId: "G-S2MRNJRT2E"
-};
-
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const gProvider = new GoogleAuthProvider();
-window.fbAuth = auth;
-window.fbDb = db;
-
-window.fbGoogleLogin = async () => {
-  try {
-    showLoader('Signing in with Google...');
-    const r = await signInWithPopup(auth, gProvider);
-    await fbSaveUser(r.user);
-  } catch(e) { hideLoader(); showAuthErr('Google login failed: '+e.message); }
-};
-
-window.fbEmailLogin = async (email, pass) => {
-  try {
-    showLoader('Logging in...');
-    await signInWithEmailAndPassword(auth, email, pass);
-  } catch(e) { hideLoader(); showAuthErr(e.code==='auth/invalid-credential'?'Wrong email or password!':'Login failed: '+e.message); }
-};
-
-window.fbRegister = async (name, email, pass) => {
-  try {
-    showLoader('Creating account...');
-    const r = await createUserWithEmailAndPassword(auth, email, pass);
-    await fbSaveUser(r.user, name);
-  } catch(e) { hideLoader(); showAuthErr(e.code==='auth/email-already-in-use'?'Email already registered!':e.code==='auth/weak-password'?'Password must be 6+ characters!':'Register failed: '+e.message); }
-};
-
-window.fbForgotPassword = async (email) => {
-  if(!email) { showAuthErr('Enter your email first!'); return; }
-  try {
-    showLoader('Sending reset email...');
-    await sendPasswordResetEmail(auth, email);
-    hideLoader();
-    showAuthSuccess('Password reset email sent! Check inbox.');
-    document.getElementById('forgotDiv').style.display='none';
-  } catch(e) { hideLoader(); showAuthErr('Enter a valid email!'); }
-};
-
-window.fbLogout = async () => {
-  await signOut(auth);
-  window.currentUser = null;
-  window.currentUserData = null;
-  document.getElementById('authScreen').classList.add('active');
-  document.getElementById('appScreen').classList.remove('active');
-};
-
-async function fbSaveUser(user, name) {
-  const ref = doc(db, 'users', user.uid);
-  const snap = await getDoc(ref);
-  if(!snap.exists()) {
-    const data = {
-      uid:user.uid,
-      name:name||user.displayName||'SpeedX User',
-      email:user.email,
-      photoURL:user.photoURL||'',
-      trips:0, totalDist:0, maxSpeed:0, totalTime:0,
-      joined:serverTimestamp()
-    };
-    await setDoc(ref, data);
-    window.currentUserData = data;
-  } else {
-    window.currentUserData = snap.data();
-  }
-}
-
-window.fbSaveTrip = async (trip) => {
-  if(!auth.currentUser) return;
-  try {
-    await addDoc(collection(db,'trips'), {...trip, uid:auth.currentUser.uid, timestamp:serverTimestamp()});
-    const ref = doc(db,'users',auth.currentUser.uid);
-    const snap = await getDoc(ref);
-    if(snap.exists()) {
-      const d = snap.data();
-      const updated = {
-        ...d,
-        trips:(d.trips||0)+1,
-        totalDist:parseFloat(((d.totalDist||0)+trip.dist).toFixed(2)),
-        maxSpeed:Math.max(d.maxSpeed||0,trip.maxSpd),
-        totalTime:(d.totalTime||0)+trip.duration
-      };
-      await setDoc(ref, updated);
-      window.currentUserData = updated;
-      // Leaderboard
-      await setDoc(doc(db,'leaderboard',auth.currentUser.uid), {
-        uid:auth.currentUser.uid,
-        name:updated.name||'User',
-        maxSpeed:updated.maxSpeed,
-        totalDist:updated.totalDist,
-        trips:updated.trips
-      });
-    }
-  } catch(e){ console.log('Save trip error:',e); }
-};
-
-window.fbLoadTrips = async () => {
-  if(!auth.currentUser) return [];
-  try {
-    const q = query(collection(db,'trips'), where('uid','==',auth.currentUser.uid), orderBy('timestamp','desc'), limit(30));
-    return (await getDocs(q)).docs.map(d=>d.data());
-  } catch(e){ return []; }
-};
-
-window.fbLoadLeaderboard = async (s='maxSpeed') => {
-  try {
-    const q = query(collection(db,'leaderboard'), orderBy(s,'desc'), limit(10));
-    return (await getDocs(q)).docs.map(d=>d.data());
-  } catch(e){ return []; }
-};
-
-onAuthStateChanged(auth, async (user) => {
-  hideLoader();
-  if(user) {
-    window.currentUser = user;
-    const ref = doc(db,'users',user.uid);
-    const snap = await getDoc(ref);
-    if(snap.exists()) window.currentUserData = snap.data();
-    else await fbSaveUser(user);
-    window.launchMainApp();
-  } else {
-    window.showAuth();
-  }
-});
-</script>
 <style>
-:root {
+:root{
   --bg:#080e1c;--bg2:#0e1829;--card:#111e33;--card2:#0a1422;
   --border:#1a2e4a;--border2:#223655;
   --neon:#00e5ff;--green:#00e676;--danger:#ff1744;--warn:#ff9100;
-  --purple:#7c4dff;--gold:#ffd740;--pink:#f06292;
+  --purple:#7c4dff;--gold:#ffd740;
   --text:#def0fc;--text2:#7fb3d3;--muted:#3d5a6e;
-  --glass:rgba(8,14,28,0.92);--shadow:rgba(0,229,255,0.12);
+  --glass:rgba(8,14,28,0.95);
 }
 [data-theme="light"]{
   --bg:#eef4fb;--bg2:#ddeaf6;--card:#fff;--card2:#f4f9ff;
   --border:#c0d4e8;--border2:#a8c0d8;
   --neon:#006fb8;--green:#1b5e20;--danger:#b71c1c;--warn:#bf360c;
-  --purple:#4527a0;--gold:#f57f17;--pink:#c2185b;
+  --purple:#4527a0;--gold:#f57f17;
   --text:#0d1f30;--text2:#2a4a6e;--muted:#607d8b;
-  --glass:rgba(240,248,255,0.95);--shadow:rgba(0,111,184,0.1);
+  --glass:rgba(240,248,255,0.97);
 }
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 html,body{height:100%;overflow:hidden;font-family:'Rajdhani',sans-serif;background:var(--bg);color:var(--text);}
 
 /* LOADER */
-.loader{position:fixed;inset:0;background:rgba(8,14,28,0.97);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;}
-.loader.hide{display:none;}
-.spin{width:48px;height:48px;border:3px solid var(--border2);border-top:3px solid var(--neon);border-radius:50%;animation:spin 0.8s linear infinite;}
-@keyframes spin{to{transform:rotate(360deg);}}
-.load-txt{font-family:'Orbitron',monospace;font-size:11px;color:var(--neon);letter-spacing:2px;text-align:center;}
+#loader{position:fixed;inset:0;background:#080e1c;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;}
+#loader.hide{display:none;}
+.spin{width:44px;height:44px;border:3px solid #1a2e4a;border-top:3px solid #00e5ff;border-radius:50%;animation:spin .8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg)}}
+.load-txt{font-family:'Orbitron',monospace;font-size:10px;color:#00e5ff;letter-spacing:2px;text-align:center;}
 
-/* AUTH SCREEN */
-.auth-screen{position:fixed;inset:0;background:var(--bg);z-index:5000;display:none;flex-direction:column;align-items:center;justify-content:center;padding:20px;gap:14px;}
-.auth-screen.active{display:flex;}
-.auth-bg{position:fixed;inset:0;background:radial-gradient(ellipse at 50% 20%,rgba(0,229,255,0.06),transparent 60%);pointer-events:none;}
-.auth-logo{font-family:'Orbitron',monospace;font-size:38px;font-weight:900;color:var(--neon);text-shadow:0 0 40px var(--shadow);letter-spacing:5px;}
+/* AUTH */
+#authScreen{position:fixed;inset:0;background:var(--bg);z-index:5000;display:none;flex-direction:column;align-items:center;justify-content:center;padding:18px;gap:12px;overflow-y:auto;}
+#authScreen.show{display:flex;}
+.auth-logo{font-family:'Orbitron',monospace;font-size:36px;font-weight:900;color:var(--neon);letter-spacing:5px;}
 .auth-logo span{color:var(--danger);}
-.auth-tag{font-size:10px;color:var(--muted);letter-spacing:4px;}
-.auth-card{width:100%;max-width:360px;background:var(--card);border:1px solid var(--border);border-radius:20px;padding:22px;display:flex;flex-direction:column;gap:11px;}
-.auth-title{font-family:'Orbitron',monospace;font-size:12px;color:var(--neon);letter-spacing:3px;text-align:center;}
-.tab-row{display:flex;background:var(--card2);border-radius:10px;padding:3px;gap:3px;}
-.tab-btn{flex:1;padding:8px;border:none;background:transparent;color:var(--muted);font-family:'Orbitron',monospace;font-size:10px;border-radius:8px;cursor:pointer;letter-spacing:1px;transition:all 0.2s;}
-.tab-btn.on{background:rgba(0,229,255,0.12);color:var(--neon);border:1px solid rgba(0,229,255,0.3);}
-.inp{background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;color:var(--text);font-family:'Rajdhani',sans-serif;font-size:15px;width:100%;outline:none;transition:border 0.2s;}
+.auth-tag{font-size:9px;color:var(--muted);letter-spacing:4px;}
+.auth-card{width:100%;max-width:340px;background:var(--card);border:1px solid var(--border);border-radius:18px;padding:20px;display:flex;flex-direction:column;gap:10px;}
+.auth-title{font-family:'Orbitron',monospace;font-size:11px;color:var(--neon);letter-spacing:3px;text-align:center;}
+.tab-row{display:flex;background:var(--card2);border-radius:9px;padding:3px;gap:3px;}
+.tab-btn{flex:1;padding:8px;border:none;background:transparent;color:var(--muted);font-family:'Orbitron',monospace;font-size:9px;border-radius:7px;cursor:pointer;letter-spacing:1px;transition:all .2s;}
+.tab-btn.on{background:rgba(0,229,255,.12);color:var(--neon);border:1px solid rgba(0,229,255,.3);}
+.inp{background:var(--card2);border:1px solid var(--border);border-radius:9px;padding:11px 13px;color:var(--text);font-family:'Rajdhani',sans-serif;font-size:15px;width:100%;outline:none;transition:border .2s;}
 .inp:focus{border-color:var(--neon);}
 .inp::placeholder{color:var(--muted);}
-.btn-p{background:linear-gradient(135deg,#00c853,#00e676);border:none;border-radius:12px;padding:14px;color:#000;font-family:'Orbitron',monospace;font-size:12px;font-weight:900;letter-spacing:2px;cursor:pointer;width:100%;}
-.btn-google{background:#fff;border:none;border-radius:12px;padding:13px;color:#333;font-family:'Orbitron',monospace;font-size:10px;font-weight:700;letter-spacing:1px;cursor:pointer;width:100%;display:flex;align-items:center;justify-content:center;gap:8px;}
-.auth-err{color:var(--danger);font-size:11px;text-align:center;font-family:'Orbitron',monospace;display:none;padding:8px;background:rgba(255,23,68,0.08);border-radius:8px;}
-.auth-ok{color:var(--green);font-size:11px;text-align:center;font-family:'Orbitron',monospace;display:none;padding:8px;background:rgba(0,230,118,0.08);border-radius:8px;}
-.div{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:11px;}
-.div::before,.div::after{content:'';flex:1;height:1px;background:var(--border);}
+.btn-p{background:linear-gradient(135deg,#00c853,#00e676);border:none;border-radius:11px;padding:13px;color:#000;font-family:'Orbitron',monospace;font-size:11px;font-weight:900;letter-spacing:2px;cursor:pointer;width:100%;}
+.btn-google{background:#fff;border:1px solid #ddd;border-radius:11px;padding:12px;color:#333;font-family:'Orbitron',monospace;font-size:9px;font-weight:700;letter-spacing:1px;cursor:pointer;width:100%;display:flex;align-items:center;justify-content:center;gap:8px;}
+.auth-err{color:var(--danger);font-size:10px;text-align:center;font-family:'Orbitron',monospace;display:none;padding:7px;background:rgba(255,23,68,.08);border-radius:7px;}
+.auth-ok{color:var(--green);font-size:10px;text-align:center;font-family:'Orbitron',monospace;display:none;padding:7px;background:rgba(0,230,118,.08);border-radius:7px;}
+.divider{display:flex;align-items:center;gap:9px;color:var(--muted);font-size:10px;}
+.divider::before,.divider::after{content:'';flex:1;height:1px;background:var(--border);}
 .forgot-lnk{text-align:center;font-size:11px;color:var(--neon);cursor:pointer;text-decoration:underline;}
 
 /* MAIN APP */
-.app-screen{position:fixed;inset:0;display:none;flex-direction:column;}
-.app-screen.active{display:flex;}
+#appScreen{position:fixed;inset:0;display:none;flex-direction:column;}
+#appScreen.show{display:flex;}
 
-/* TOP BAR */
-.topbar{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--glass);backdrop-filter:blur(20px);border-bottom:1px solid var(--border);flex-shrink:0;z-index:200;}
-.logo{font-family:'Orbitron',monospace;font-size:18px;font-weight:900;color:var(--neon);letter-spacing:3px;text-shadow:0 0 20px var(--shadow);}
+/* TOPBAR */
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:9px 13px;background:var(--glass);backdrop-filter:blur(20px);border-bottom:1px solid var(--border);flex-shrink:0;z-index:200;}
+.logo{font-family:'Orbitron',monospace;font-size:17px;font-weight:900;color:var(--neon);letter-spacing:3px;}
 .logo span{color:var(--danger);}
-.top-right{display:flex;align-items:center;gap:8px;}
-.mode-chip{background:rgba(124,77,255,0.15);border:1px solid var(--purple);border-radius:20px;padding:3px 10px;font-family:'Orbitron',monospace;font-size:9px;color:var(--purple);letter-spacing:1px;cursor:pointer;}
-.theme-btn{width:30px;height:30px;border-radius:50%;border:1px solid var(--border2);background:var(--card);color:var(--text2);cursor:pointer;font-size:15px;}
-.user-chip{display:flex;align-items:center;gap:6px;background:rgba(0,229,255,0.07);border:1px solid rgba(0,229,255,0.2);border-radius:20px;padding:3px 10px;cursor:pointer;}
-.user-av{width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,var(--neon),var(--purple));display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;color:#000;overflow:hidden;}
+.top-right{display:flex;align-items:center;gap:7px;}
+.mode-chip{background:rgba(124,77,255,.15);border:1px solid var(--purple);border-radius:18px;padding:3px 9px;font-family:'Orbitron',monospace;font-size:8px;color:var(--purple);letter-spacing:1px;cursor:pointer;}
+.theme-btn{width:28px;height:28px;border-radius:50%;border:1px solid var(--border2);background:var(--card);color:var(--text2);cursor:pointer;font-size:14px;}
+.user-chip{display:flex;align-items:center;gap:5px;background:rgba(0,229,255,.07);border:1px solid rgba(0,229,255,.2);border-radius:18px;padding:3px 9px;cursor:pointer;}
+.user-av{width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,var(--neon),var(--purple));display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:900;color:#000;overflow:hidden;}
 .user-av img{width:100%;height:100%;object-fit:cover;}
-.user-nm{font-family:'Orbitron',monospace;font-size:8px;color:var(--neon);letter-spacing:1px;}
+.user-nm{font-family:'Orbitron',monospace;font-size:7px;color:var(--neon);letter-spacing:1px;}
 
 /* PAGES */
 .pages{flex:1;overflow:hidden;position:relative;}
-.page{position:absolute;inset:0;overflow-y:auto;opacity:0;pointer-events:none;transition:opacity 0.2s;padding-bottom:70px;}
+.page{position:absolute;inset:0;overflow-y:auto;opacity:0;pointer-events:none;transition:opacity .2s;padding-bottom:65px;}
 .page.active{opacity:1;pointer-events:all;}
 .page::-webkit-scrollbar{width:2px;}
 .page::-webkit-scrollbar-thumb{background:var(--border2);}
 
 /* BOTTOM NAV */
 .bnav{display:flex;background:var(--glass);backdrop-filter:blur(20px);border-top:1px solid var(--border);flex-shrink:0;z-index:200;}
-.ni{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8px 4px;cursor:pointer;gap:2px;border-top:2px solid transparent;transition:all 0.2s;}
-.ni.on{border-top-color:var(--neon);background:rgba(0,229,255,0.04);}
-.ni svg{width:19px;height:19px;stroke:var(--muted);fill:none;stroke-width:2;transition:stroke 0.2s;}
+.ni{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:7px 4px;cursor:pointer;gap:2px;border-top:2px solid transparent;transition:all .2s;}
+.ni.on{border-top-color:var(--neon);background:rgba(0,229,255,.04);}
+.ni svg{width:18px;height:18px;stroke:var(--muted);fill:none;stroke-width:2;transition:stroke .2s;}
 .ni.on svg{stroke:var(--neon);}
-.ni-lbl{font-family:'Orbitron',monospace;font-size:7px;color:var(--muted);letter-spacing:1px;transition:color 0.2s;}
+.ni-lbl{font-family:'Orbitron',monospace;font-size:6px;color:var(--muted);letter-spacing:1px;transition:color .2s;}
 .ni.on .ni-lbl{color:var(--neon);}
 
 /* CARDS */
-.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:13px;}
-.card2{background:var(--card2);border:1px solid var(--border);border-radius:11px;padding:10px;}
-.s-title{font-family:'Orbitron',monospace;font-size:9px;color:var(--muted);letter-spacing:3px;margin-bottom:9px;}
+.card{background:var(--card);border:1px solid var(--border);border-radius:13px;padding:12px;}
+.card2{background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:9px;}
+.s-title{font-family:'Orbitron',monospace;font-size:8px;color:var(--muted);letter-spacing:3px;margin-bottom:8px;}
 
-/* ---- SPEED PAGE ---- */
-.pg-pad{padding:9px;display:flex;flex-direction:column;gap:8px;}
-.gps-row{display:flex;align-items:center;gap:8px;background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:7px 11px;}
-.gps-dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex-shrink:0;}
-.gps-dot.locked{background:var(--green);box-shadow:0 0 8px var(--green);animation:bl 2s infinite;}
-.gps-dot.searching{background:var(--warn);animation:bl 0.8s infinite;}
-@keyframes bl{0%,100%{opacity:1}50%{opacity:0.3}}
-.gps-txt{font-family:'Orbitron',monospace;font-size:9px;color:var(--text2);flex:1;letter-spacing:1px;}
-.gps-acc{font-family:'Orbitron',monospace;font-size:9px;}
+/* SPEED PAGE */
+.pg-pad{padding:8px;display:flex;flex-direction:column;gap:7px;}
+.gps-row{display:flex;align-items:center;gap:7px;background:var(--card2);border:1px solid var(--border);border-radius:9px;padding:6px 10px;}
+.gps-dot{width:7px;height:7px;border-radius:50%;background:var(--muted);flex-shrink:0;}
+.gps-dot.locked{background:var(--green);box-shadow:0 0 7px var(--green);animation:bl 2s infinite;}
+.gps-dot.searching{background:var(--warn);animation:bl .8s infinite;}
+@keyframes bl{0%,100%{opacity:1}50%{opacity:.3}}
+.gps-txt{font-family:'Orbitron',monospace;font-size:8px;color:var(--text2);flex:1;letter-spacing:1px;}
+.gps-acc{font-family:'Orbitron',monospace;font-size:8px;}
 .gps-acc.good{color:var(--green);}
 .gps-acc.bad{color:var(--danger);}
-.compass{font-family:'Orbitron',monospace;font-size:10px;color:var(--purple);}
-.weather-chip{font-family:'Orbitron',monospace;font-size:9px;color:var(--gold);padding:2px 8px;border:1px solid rgba(255,215,64,0.3);border-radius:10px;}
+.compass{font-family:'Orbitron',monospace;font-size:9px;color:var(--purple);}
+.weather-chip{font-family:'Orbitron',monospace;font-size:8px;color:var(--gold);padding:2px 7px;border:1px solid rgba(255,215,64,.3);border-radius:9px;}
 
 /* ALERT */
-.alert-bar{background:rgba(255,23,68,0.1);border:1px solid var(--danger);border-radius:10px;padding:8px 13px;display:none;align-items:center;gap:10px;animation:ap 0.5s ease-in-out infinite alternate;}
+.alert-bar{background:rgba(255,23,68,.1);border:1px solid var(--danger);border-radius:9px;padding:7px 12px;display:none;align-items:center;gap:9px;animation:ap .5s ease-in-out infinite alternate;}
 .alert-bar.show{display:flex;}
-@keyframes ap{0%{box-shadow:0 0 5px rgba(255,23,68,0.2)}100%{box-shadow:0 0 20px rgba(255,23,68,0.6)}}
-.alert-txt{font-family:'Orbitron',monospace;font-size:11px;color:var(--danger);font-weight:700;}
+@keyframes ap{0%{box-shadow:0 0 5px rgba(255,23,68,.2)}100%{box-shadow:0 0 20px rgba(255,23,68,.6)}}
+.alert-txt{font-family:'Orbitron',monospace;font-size:10px;color:var(--danger);font-weight:700;}
 
 /* GAUGE */
 .speedo-wrap{position:relative;display:flex;justify-content:center;}
 .gauge-center{position:absolute;top:50%;left:50%;transform:translate(-50%,-42%);text-align:center;pointer-events:none;}
-.spd-big{font-family:'Orbitron',monospace;font-weight:900;color:var(--neon);line-height:1;transition:color 0.3s;font-size:50px;}
-.spd-unit{font-size:11px;color:var(--muted);letter-spacing:4px;margin-top:1px;}
-.spd-mode{font-size:9px;color:var(--purple);letter-spacing:2px;margin-top:3px;font-family:'Orbitron',monospace;}
+.spd-big{font-family:'Orbitron',monospace;font-weight:900;color:var(--neon);line-height:1;transition:color .3s;font-size:48px;}
+.spd-unit{font-size:10px;color:var(--muted);letter-spacing:4px;margin-top:1px;}
+.spd-mode{font-size:8px;color:var(--purple);letter-spacing:2px;margin-top:2px;font-family:'Orbitron',monospace;}
 
 /* STATS DIGI */
-.drow{display:flex;gap:6px;}
-.dbox{flex:1;background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:9px 5px;text-align:center;}
-.dval{font-family:'Orbitron',monospace;font-size:16px;font-weight:700;color:var(--neon);}
-.dlbl{font-size:8px;color:var(--muted);letter-spacing:1px;margin-top:2px;}
+.drow{display:flex;gap:5px;}
+.dbox{flex:1;background:var(--card2);border:1px solid var(--border);border-radius:9px;padding:8px 4px;text-align:center;}
+.dval{font-family:'Orbitron',monospace;font-size:15px;font-weight:700;color:var(--neon);}
+.dlbl{font-size:7px;color:var(--muted);letter-spacing:1px;margin-top:2px;}
 
 /* LIMIT */
 .lim-row{display:flex;align-items:center;justify-content:space-between;}
-.lim-lbl{font-family:'Orbitron',monospace;font-size:10px;color:var(--muted);letter-spacing:2px;}
-.lim-ctrl{display:flex;align-items:center;gap:8px;}
-.lbtn{width:28px;height:28px;border-radius:8px;border:1px solid var(--neon);background:transparent;color:var(--neon);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
-.lval{font-family:'Orbitron',monospace;font-size:17px;color:var(--warn);min-width:40px;text-align:center;}
+.lim-lbl{font-family:'Orbitron',monospace;font-size:9px;color:var(--muted);letter-spacing:2px;}
+.lim-ctrl{display:flex;align-items:center;gap:7px;}
+.lbtn{width:26px;height:26px;border-radius:7px;border:1px solid var(--neon);background:transparent;color:var(--neon);font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.lval{font-family:'Orbitron',monospace;font-size:16px;color:var(--warn);min-width:38px;text-align:center;}
 
 /* TRIP STATS */
-.tstats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;}
+.tstats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;}
 
-/* TRIP BUTTONS */
-.tbtns{display:flex;gap:7px;}
-.tbtn{flex:1;height:50px;border-radius:12px;border:none;font-family:'Orbitron',monospace;font-size:11px;font-weight:900;letter-spacing:1px;cursor:pointer;transition:all 0.2s;}
-.tbtn:disabled{opacity:0.35;cursor:not-allowed;}
-.btn-start{background:linear-gradient(135deg,#00c853,#00e676);color:#000;}
-.btn-stop{background:linear-gradient(135deg,#b71c1c,#ff1744);color:#fff;}
-.btn-reset{background:transparent;border:1px solid var(--border2);color:var(--muted);flex:0.5;}
+/* MINI MAP on speed page */
+#miniMap{width:100%;height:140px;border-radius:12px;overflow:hidden;border:1px solid var(--border);}
 
-/* AD */
-.ad{background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:8px 12px;display:flex;align-items:center;gap:8px;overflow:hidden;position:relative;}
-.ad::before{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(0,229,255,0.03),transparent);animation:sc 4s linear infinite;}
-@keyframes sc{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
-.ad-tag{font-size:7px;color:var(--muted);border:1px solid var(--muted);padding:1px 4px;border-radius:2px;flex-shrink:0;}
-.ad-txt{font-size:10px;color:var(--neon);font-family:'Orbitron',monospace;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.ad-btn{background:var(--neon);color:#000;border:none;border-radius:6px;padding:4px 10px;font-family:'Orbitron',monospace;font-size:9px;font-weight:900;cursor:pointer;flex-shrink:0;}
+/* MAP PAGE */
+#map{width:100%;height:100%;}
+.map-ov{position:absolute;bottom:70px;left:10px;right:10px;background:var(--glass);backdrop-filter:blur(15px);border:1px solid var(--border);border-radius:12px;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;}
+.map-spd{font-family:'Orbitron',monospace;font-size:22px;color:var(--neon);}
+.save-btn{background:var(--purple);border:none;border-radius:8px;padding:7px 13px;color:#fff;font-family:'Orbitron',monospace;font-size:8px;cursor:pointer;letter-spacing:1px;}
 
-/* DRIVING SCORE */
-.score-card{text-align:center;padding:14px;}
-.score-circle{width:80px;height:80px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:'Orbitron',monospace;font-size:24px;font-weight:900;margin:0 auto 10px;border:3px solid;}
-.score-good{color:var(--green);border-color:var(--green);background:rgba(0,230,118,0.1);}
-.score-ok{color:var(--warn);border-color:var(--warn);background:rgba(255,145,0,0.1);}
-.score-bad{color:var(--danger);border-color:var(--danger);background:rgba(255,23,68,0.1);}
-.score-lbl{font-family:'Orbitron',monospace;font-size:12px;letter-spacing:2px;}
-
-/* ---- MAP ---- */
-#page-map{padding:0 !important;}
-#map{width:100%;flex:1;min-height:0;}
-.map-ov{position:absolute;bottom:10px;left:10px;right:10px;background:var(--glass);backdrop-filter:blur(15px);border:1px solid var(--border);border-radius:14px;padding:10px 13px;z-index:500;display:flex;align-items:center;justify-content:space-between;}
-.map-spd{font-family:'Orbitron',monospace;font-size:22px;font-weight:900;color:var(--neon);}
-.save-btn{background:rgba(0,229,255,0.1);border:1px solid var(--neon);border-radius:8px;padding:6px 12px;color:var(--neon);font-family:'Orbitron',monospace;font-size:9px;cursor:pointer;}
-
-/* ---- STATS ---- */
-.stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
-.scard{background:var(--card2);border:1px solid var(--border);border-radius:12px;padding:13px;text-align:center;}
-.sval{font-family:'Orbitron',monospace;font-size:21px;font-weight:900;color:var(--neon);}
-.slbl{font-size:9px;color:var(--muted);letter-spacing:1px;margin-top:3px;}
-
-/* CHALLENGE */
-.chal-item{background:var(--card2);border:1px solid var(--border);border-radius:11px;padding:12px;display:flex;align-items:center;gap:10px;}
-.chal-icon{font-size:24px;flex-shrink:0;}
-.chal-info{flex:1;}
-.chal-name{font-size:13px;font-weight:700;color:var(--text);}
-.chal-prog{margin-top:5px;height:5px;background:var(--border);border-radius:3px;overflow:hidden;}
-.chal-fill{height:100%;background:linear-gradient(90deg,var(--neon),var(--green));border-radius:3px;transition:width 0.5s;}
-.chal-badge{font-family:'Orbitron',monospace;font-size:10px;padding:4px 10px;border-radius:20px;}
-.badge-done{background:rgba(0,230,118,0.15);color:var(--green);border:1px solid var(--green);}
-.badge-pend{background:rgba(0,229,255,0.1);color:var(--neon);border:1px solid var(--neon);}
+/* STATS */
+.stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;}
+.scard{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px;text-align:center;}
+.sval{font-family:'Orbitron',monospace;font-size:22px;color:var(--neon);}
+.slbl{font-size:8px;color:var(--muted);letter-spacing:2px;margin-top:3px;}
 
 /* LEADERBOARD */
-.lb-row{display:flex;align-items:center;gap:10px;background:var(--card2);border:1px solid var(--border);border-radius:12px;padding:11px 13px;margin-bottom:7px;}
-.lb-row.me{border-color:rgba(0,229,255,0.4);background:rgba(0,229,255,0.04);}
-.lb-rank{font-family:'Orbitron',monospace;font-size:16px;font-weight:900;min-width:26px;text-align:center;}
-.gold{color:var(--gold);}.silver{color:#c0c0c0;}.bronze{color:#cd7f32;}.normal{color:var(--muted);}
-.lb-av{width:32px;height:32px;border-radius:9px;background:linear-gradient(135deg,var(--neon),var(--purple));display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:900;color:#000;flex-shrink:0;}
+.lb-row{display:flex;align-items:center;gap:9px;padding:9px;border-radius:10px;border:1px solid var(--border);margin-bottom:6px;background:var(--card2);}
+.lb-row.me{border-color:var(--neon);background:rgba(0,229,255,.06);}
+.lb-rank{font-family:'Orbitron',monospace;font-size:9px;min-width:30px;text-align:center;}
+.lb-rank.gold{color:var(--gold);}
+.lb-rank.silver{color:#ccc;}
+.lb-rank.bronze{color:#cd7f32;}
+.lb-rank.normal{color:var(--muted);}
+.lb-av{width:28px;height:28px;border-radius:50%;background:var(--purple);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:900;color:#fff;flex-shrink:0;}
 .lb-user{flex:1;}
-.lb-name{font-size:13px;font-weight:700;color:var(--text);}
-.lb-sub{font-size:10px;color:var(--muted);margin-top:1px;}
-.lb-spd{font-family:'Orbitron',monospace;font-size:14px;font-weight:900;color:var(--neon);}
+.lb-name{font-family:'Orbitron',monospace;font-size:9px;color:var(--text);}
+.lb-sub{font-size:9px;color:var(--muted);}
+.lb-spd{font-family:'Orbitron',monospace;font-size:11px;color:var(--neon);}
 
 /* HISTORY */
-.hist-item{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px 13px;margin-bottom:7px;display:flex;align-items:center;gap:9px;}
-.hist-icon{font-size:22px;flex-shrink:0;}
+.hist-item{display:flex;align-items:center;gap:10px;padding:10px;border-radius:11px;border:1px solid var(--border);margin-bottom:6px;background:var(--card2);}
+.hist-icon{font-size:20px;}
 .hist-info{flex:1;}
-.hist-nm{font-size:13px;font-weight:700;color:var(--text);}
-.hist-mt{font-size:10px;color:var(--muted);margin-top:2px;display:flex;gap:8px;flex-wrap:wrap;}
-.hist-spd{font-family:'Orbitron',monospace;font-size:13px;color:var(--neon);font-weight:700;}
-.del-btn{background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:15px;padding:4px;}
+.hist-nm{font-family:'Orbitron',monospace;font-size:9px;color:var(--text);margin-bottom:3px;}
+.hist-mt{display:flex;gap:10px;font-size:9px;color:var(--muted);}
+.hist-spd{font-family:'Orbitron',monospace;font-size:17px;color:var(--neon);}
+.del-btn{background:transparent;border:none;font-size:14px;cursor:pointer;color:var(--danger);margin-top:3px;}
+.empty{text-align:center;padding:30px;color:var(--muted);}
+.empty .big{font-size:36px;margin-bottom:8px;}
+.empty p{font-size:10px;letter-spacing:2px;font-family:'Orbitron',monospace;}
 
 /* PROFILE */
-.p-hero{background:linear-gradient(135deg,rgba(0,229,255,0.07),rgba(124,77,255,0.07));border:1px solid var(--border);border-radius:18px;padding:20px;text-align:center;}
-.pav{width:76px;height:76px;border-radius:20px;background:linear-gradient(135deg,var(--neon),var(--purple));border:3px solid var(--neon);display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:900;color:#000;margin:0 auto 10px;overflow:hidden;cursor:pointer;position:relative;}
+.p-hero{text-align:center;padding:16px;background:var(--card);border:1px solid var(--border);border-radius:13px;}
+.pav{width:70px;height:70px;border-radius:50%;background:linear-gradient(135deg,var(--neon),var(--purple));margin:0 auto 10px;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:900;color:#000;cursor:pointer;position:relative;overflow:hidden;}
 .pav img{width:100%;height:100%;object-fit:cover;}
-.pav-ov{position:absolute;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity 0.2s;font-size:18px;}
+.pav-ov{position:absolute;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;font-size:18px;opacity:0;transition:opacity .2s;}
 .pav:hover .pav-ov{opacity:1;}
-.p-name{font-family:'Orbitron',monospace;font-size:15px;color:var(--neon);font-weight:900;letter-spacing:2px;}
+.p-name{font-family:'Orbitron',monospace;font-size:14px;color:var(--text);font-weight:900;}
 .p-email{font-size:11px;color:var(--muted);margin-top:3px;}
-.mode-row{display:flex;gap:6px;justify-content:center;margin-top:11px;}
-.mb{padding:5px 13px;border-radius:20px;border:1px solid var(--border2);background:transparent;color:var(--muted);font-family:'Orbitron',monospace;font-size:9px;cursor:pointer;letter-spacing:1px;}
-.mb.on{background:rgba(124,77,255,0.15);border-color:var(--purple);color:var(--purple);}
-.sr{display:flex;align-items:center;justify-content:space-between;background:var(--card2);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:7px;}
+.mode-row{display:flex;gap:6px;margin-top:10px;justify-content:center;}
+.mb{background:transparent;border:1px solid var(--border2);border-radius:8px;padding:5px 12px;color:var(--muted);font-family:'Orbitron',monospace;font-size:9px;cursor:pointer;}
+.mb.on{border-color:var(--purple);color:var(--purple);background:rgba(124,77,255,.12);}
+.sr{display:flex;align-items:center;justify-content:space-between;background:var(--card);border:1px solid var(--border);border-radius:11px;padding:11px 13px;margin-bottom:6px;}
 .sr-left{display:flex;align-items:center;gap:10px;}
-.sr-icon{font-size:17px;}
-.sr-label{font-size:13px;font-weight:600;color:var(--text);}
-.sr-sub{font-size:10px;color:var(--muted);margin-top:1px;}
-.btn-out{width:100%;height:46px;border-radius:12px;border:1px solid var(--danger);background:rgba(255,23,68,0.08);color:var(--danger);font-family:'Orbitron',monospace;font-size:11px;font-weight:700;letter-spacing:2px;cursor:pointer;}
-.export-btn{width:100%;height:44px;background:linear-gradient(135deg,rgba(0,229,255,0.08),rgba(124,77,255,0.08));border:1px solid var(--neon);border-radius:11px;color:var(--neon);font-family:'Orbitron',monospace;font-size:10px;letter-spacing:2px;cursor:pointer;}
+.sr-icon{font-size:18px;}
+.sr-label{font-family:'Orbitron',monospace;font-size:10px;color:var(--text);}
+.sr-sub{font-size:10px;color:var(--muted);}
+.btn-out{width:100%;padding:13px;border-radius:11px;border:1px solid var(--danger);background:rgba(255,23,68,.08);color:var(--danger);font-family:'Orbitron',monospace;font-size:10px;font-weight:900;letter-spacing:2px;cursor:pointer;margin-top:6px;}
+.export-btn{width:100%;padding:12px;border-radius:11px;border:1px solid var(--purple);background:rgba(124,77,255,.1);color:var(--purple);font-family:'Orbitron',monospace;font-size:9px;font-weight:900;letter-spacing:2px;cursor:pointer;}
 
-/* EMPTY */
-.empty{text-align:center;padding:50px 20px;color:var(--muted);}
-.empty .big{font-size:44px;margin-bottom:10px;}
-.empty p{font-family:'Orbitron',monospace;font-size:10px;letter-spacing:2px;}
+/* SCORE */
+.score-circle{width:72px;height:72px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:'Orbitron',monospace;font-size:22px;font-weight:900;margin:0 auto 9px;border:3px solid;}
+.score-good{color:var(--green);border-color:var(--green);background:rgba(0,230,118,.1);}
+.score-ok{color:var(--warn);border-color:var(--warn);background:rgba(255,145,0,.1);}
+.score-bad{color:var(--danger);border-color:var(--danger);background:rgba(255,23,68,.1);}
 
-/* PERMISSION MODAL */
-.perm-modal{position:fixed;inset:0;background:rgba(8,14,28,0.97);z-index:8000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:30px;}
-.perm-modal.hide{display:none;}
-.perm-icon{font-size:60px;}
-.perm-title{font-family:'Orbitron',monospace;font-size:17px;color:var(--neon);font-weight:900;letter-spacing:3px;text-align:center;}
-.perm-sub{font-size:13px;color:var(--text2);text-align:center;line-height:1.6;max-width:280px;}
-.perm-allow{height:48px;padding:0 28px;border-radius:13px;border:none;font-family:'Orbitron',monospace;font-size:12px;font-weight:900;cursor:pointer;background:linear-gradient(135deg,#00c853,#00e676);color:#000;letter-spacing:2px;}
-.perm-deny{background:transparent;border:1px solid var(--border2);border-radius:13px;height:44px;padding:0 20px;color:var(--muted);font-family:'Orbitron',monospace;font-size:10px;cursor:pointer;}
+/* CHALLENGES */
+.chal-item{display:flex;align-items:center;gap:9px;padding:8px;border-radius:9px;border:1px solid var(--border);margin-bottom:5px;background:var(--card2);}
+.chal-icon{font-size:20px;}
+.chal-info{flex:1;}
+.chal-name{font-family:'Orbitron',monospace;font-size:9px;color:var(--text);}
+.chal-prog{height:4px;background:var(--border);border-radius:2px;margin-top:4px;}
+.chal-fill{height:100%;background:var(--neon);border-radius:2px;transition:width .5s;}
+.chal-badge{font-family:'Orbitron',monospace;font-size:8px;padding:2px 7px;border-radius:6px;}
+.badge-done{background:rgba(0,230,118,.15);color:var(--green);border:1px solid var(--green);}
+.badge-pend{background:rgba(0,229,255,.08);color:var(--neon);border:1px solid rgba(0,229,255,.3);}
 
-/* ACCIDENT ALERT */
-.acc-alert{position:fixed;top:80px;left:10px;right:10px;background:rgba(255,23,68,0.95);border-radius:14px;padding:16px;z-index:7000;display:none;text-align:center;}
-.acc-alert.show{display:block;animation:shake 0.5s ease-in-out;}
-@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-10px)}75%{transform:translateX(10px)}}
-
-/* MODE MODAL */
-.modal{position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:7500;display:flex;align-items:flex-end;justify-content:center;}
-.modal.hide{display:none;}
-.modal-card{background:var(--card);border:1px solid var(--border);border-radius:18px 18px 0 0;padding:18px;width:100%;max-width:500px;}
-.modal-title{font-family:'Orbitron',monospace;font-size:12px;color:var(--neon);letter-spacing:2px;margin-bottom:13px;}
-.mopt{display:flex;align-items:center;gap:12px;padding:12px 13px;border-radius:12px;border:1px solid var(--border2);margin-bottom:7px;cursor:pointer;}
-.mopt.on{border-color:var(--purple);background:rgba(124,77,255,0.1);}
-.mopt-lbl{font-family:'Orbitron',monospace;font-size:12px;color:var(--text);}
+/* MODALS */
+.perm-modal{position:absolute;inset:0;background:rgba(0,0,0,.85);z-index:500;display:none;flex-direction:column;align-items:center;justify-content:center;padding:24px;gap:12px;}
+.perm-modal.show{display:flex;}
+.perm-icon{font-size:48px;}
+.perm-title{font-family:'Orbitron',monospace;font-size:15px;color:var(--neon);letter-spacing:3px;font-weight:900;}
+.perm-sub{font-size:12px;color:var(--text2);text-align:center;line-height:1.6;max-width:280px;}
+.perm-allow{background:linear-gradient(135deg,#00c853,#00e676);border:none;border-radius:12px;padding:14px 30px;color:#000;font-family:'Orbitron',monospace;font-size:11px;font-weight:900;letter-spacing:2px;cursor:pointer;width:100%;max-width:280px;}
+.perm-deny{background:transparent;border:1px solid var(--muted);border-radius:12px;padding:11px 30px;color:var(--muted);font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;cursor:pointer;width:100%;max-width:280px;}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:600;display:none;align-items:flex-end;}
+.modal.show{display:flex;}
+.modal-card{background:var(--bg2);border:1px solid var(--border);border-radius:18px 18px 0 0;padding:18px;width:100%;max-width:500px;margin:0 auto;}
+.modal-title{font-family:'Orbitron',monospace;font-size:11px;color:var(--neon);letter-spacing:3px;margin-bottom:13px;text-align:center;}
+.mopt{display:flex;align-items:center;gap:11px;padding:11px 12px;border-radius:11px;border:1px solid var(--border2);margin-bottom:6px;cursor:pointer;}
+.mopt.on{border-color:var(--purple);background:rgba(124,77,255,.1);}
+.mopt-lbl{font-family:'Orbitron',monospace;font-size:11px;color:var(--text);}
 
 /* TOAST */
-.toast{position:fixed;bottom:75px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--card);border:1px solid var(--neon);border-radius:12px;padding:9px 18px;font-family:'Orbitron',monospace;font-size:10px;color:var(--neon);z-index:9000;opacity:0;transition:all 0.3s;pointer-events:none;white-space:nowrap;}
+.toast{position:fixed;bottom:72px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--card);border:1px solid var(--neon);border-radius:11px;padding:8px 16px;font-family:'Orbitron',monospace;font-size:9px;color:var(--neon);z-index:9000;opacity:0;transition:all .3s;pointer-events:none;white-space:nowrap;}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 
-/* TRIP SUMMARY */
-.summary-card{background:linear-gradient(135deg,rgba(0,229,255,0.08),rgba(124,77,255,0.08));border:1px solid var(--neon);border-radius:16px;padding:16px;margin-bottom:10px;}
-.sum-title{font-family:'Orbitron',monospace;font-size:12px;color:var(--neon);letter-spacing:2px;margin-bottom:12px;text-align:center;}
-.sum-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;}
+/* SUMMARY */
+.summary-card{background:linear-gradient(135deg,rgba(0,229,255,.08),rgba(124,77,255,.08));border:1px solid var(--neon);border-radius:14px;padding:14px;margin-bottom:9px;}
+.sum-title{font-family:'Orbitron',monospace;font-size:11px;color:var(--neon);letter-spacing:2px;margin-bottom:10px;text-align:center;}
+.sum-row{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);font-size:11px;}
 .sum-row:last-child{border:none;}
-.sum-val{font-family:'Orbitron',monospace;color:var(--neon);font-size:13px;}
-.share-btn{width:100%;height:42px;background:var(--purple);border:none;border-radius:10px;color:#fff;font-family:'Orbitron',monospace;font-size:10px;letter-spacing:2px;cursor:pointer;margin-top:10px;}
+.sum-val{font-family:'Orbitron',monospace;color:var(--neon);font-size:12px;}
+.share-btn{width:100%;height:40px;background:var(--purple);border:none;border-radius:9px;color:#fff;font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;cursor:pointer;margin-top:9px;}
+
+/* AD BANNER â€” rotating ads */
+.ad-banner{background:var(--card2);border:1px solid var(--border);border-radius:9px;padding:7px 11px;display:flex;align-items:center;gap:7px;overflow:hidden;}
+.ad-tag{font-size:6px;color:var(--muted);border:1px solid var(--muted);padding:1px 3px;border-radius:2px;flex-shrink:0;}
+.ad-txt{font-size:9px;color:var(--neon);font-family:'Orbitron',monospace;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.ad-btn{background:var(--neon);color:#000;border:none;border-radius:5px;padding:3px 9px;font-family:'Orbitron',monospace;font-size:8px;font-weight:900;cursor:pointer;flex-shrink:0;}
+
+/* ACC ALERT */
+.acc-alert{position:fixed;top:70px;left:10px;right:10px;background:linear-gradient(135deg,#b71c1c,#ff1744);border-radius:13px;padding:13px 16px;z-index:8000;display:none;flex-direction:column;align-items:center;box-shadow:0 0 30px rgba(255,23,68,.5);}
+.acc-alert.show{display:flex;}
 
 @media(min-width:768px){
-  .app-screen,.auth-screen{max-width:500px;left:50%;transform:translateX(-50%);}
+  #appScreen,#authScreen{max-width:500px;left:50%;transform:translateX(-50%);}
   .bnav{max-width:500px;left:50%;transform:translateX(-50%);}
   .toast,.acc-alert{max-width:480px;}
 }
@@ -418,9 +278,9 @@ html,body{height:100%;overflow:hidden;font-family:'Rajdhani',sans-serif;backgrou
 <body data-theme="dark">
 
 <!-- LOADER -->
-<div class="loader" id="loader">
+<div id="loader">
   <div class="spin"></div>
-  <div class="load-txt" id="loadTxt">SPEEDX PRO LOADING...<br><br>Connecting to Firebase...</div>
+  <div class="load-txt">SPEEDX PRO<br><br>Loading...</div>
 </div>
 
 <!-- TOAST -->
@@ -428,16 +288,15 @@ html,body{height:100%;overflow:hidden;font-family:'Rajdhani',sans-serif;backgrou
 
 <!-- ACCIDENT ALERT -->
 <div class="acc-alert" id="accAlert">
-  <div style="font-family:'Orbitron',monospace;font-size:16px;font-weight:900;color:#fff;letter-spacing:2px;">POSSIBLE ACCIDENT DETECTED!</div>
-  <div style="font-size:12px;color:rgba(255,255,255,0.8);margin-top:6px;">Are you okay? Speed suddenly dropped.</div>
-  <button onclick="document.getElementById('accAlert').classList.remove('show')" style="margin-top:10px;background:rgba(255,255,255,0.2);border:none;border-radius:8px;padding:6px 16px;color:#fff;cursor:pointer;font-family:'Orbitron',monospace;font-size:10px;">I AM OKAY</button>
+  <div style="font-family:'Orbitron',monospace;font-size:14px;font-weight:900;color:#fff;letter-spacing:2px;">POSSIBLE ACCIDENT!</div>
+  <div style="font-size:11px;color:rgba(255,255,255,.8);margin-top:5px;">Speed suddenly dropped. Are you okay?</div>
+  <button onclick="document.getElementById('accAlert').classList.remove('show')" style="margin-top:9px;background:rgba(255,255,255,.2);border:none;border-radius:7px;padding:5px 14px;color:#fff;cursor:pointer;font-family:'Orbitron',monospace;font-size:9px;">I AM OKAY</button>
 </div>
 
 <!-- AUTH SCREEN -->
-<div class="auth-screen" id="authScreen">
-  <div class="auth-bg"></div>
+<div id="authScreen" class="show">
   <div class="auth-logo">SPEED<span>X</span></div>
-  <div class="auth-tag">PRO v5 - GPS SPEEDOMETER</div>
+  <div class="auth-tag">PRO Â· GPS SPEEDOMETER</div>
   <div class="auth-card">
     <div class="auth-title" id="authTitle">WELCOME BACK</div>
     <div class="tab-row">
@@ -445,43 +304,43 @@ html,body{height:100%;overflow:hidden;font-family:'Rajdhani',sans-serif;backgrou
       <button class="tab-btn" onclick="swAuthTab('register')">REGISTER</button>
     </div>
     <input class="inp" id="authName" placeholder="Full Name" type="text" style="display:none;">
-    <input class="inp" id="authEmail" placeholder="Email Address" type="email">
+    <input class="inp" id="authEmail" placeholder="Email Address" type="email" autocomplete="email">
     <input class="inp" id="authPass" placeholder="Password (6+ chars)" type="password" onkeydown="if(event.key==='Enter')doAuth()">
     <div class="auth-err" id="authErr"></div>
     <div class="auth-ok" id="authOk"></div>
     <button class="btn-p" onclick="doAuth()">ENTER</button>
-    <div class="div">or</div>
+    <div class="divider">or</div>
     <button class="btn-google" onclick="fbGoogleLogin()">
-      <img src="https://www.google.com/favicon.ico" width="16" height="16" onerror="this.style.display='none'">
+      <svg width="16" height="16" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.4 1.2 8.8 3.2l6.5-6.5C35.2 2.7 29.9 0 24 0 14.6 0 6.6 5.5 2.7 13.5l7.6 5.9C12.2 13.3 17.6 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v8.5h12.7c-.6 3-2.3 5.5-4.8 7.2l7.5 5.8c4.4-4.1 7.1-10 7.1-17z"/><path fill="#FBBC05" d="M10.3 28.6A14.7 14.7 0 0 1 9.5 24c0-1.6.3-3.1.8-4.6L2.7 13.5A24 24 0 0 0 0 24c0 3.9.9 7.5 2.7 10.7l7.6-6.1z"/><path fill="#34A853" d="M24 48c5.9 0 10.9-2 14.5-5.3l-7.5-5.8c-2 1.4-4.5 2.1-7 2.1-6.4 0-11.8-4.3-13.7-10.1l-7.6 6c3.8 8 11.9 13.1 21.3 13.1z"/></svg>
       CONTINUE WITH GOOGLE
     </button>
-    <div class="forgot-lnk" onclick="document.getElementById('forgotDiv').style.display=document.getElementById('forgotDiv').style.display==='flex'?'none':'flex'">Forgot Password?</div>
+    <div class="forgot-lnk" onclick="toggleForgot()">Forgot Password?</div>
     <div id="forgotDiv" style="display:none;flex-direction:column;gap:8px;">
       <input class="inp" id="forgotEmail" placeholder="Enter your email" type="email">
-      <button onclick="fbForgotPassword(document.getElementById('forgotEmail').value)" style="background:transparent;border:1px solid var(--neon);border-radius:10px;padding:11px;color:var(--neon);font-family:'Orbitron',monospace;font-size:10px;cursor:pointer;letter-spacing:1px;">SEND RESET EMAIL</button>
+      <button onclick="doForgot()" style="background:transparent;border:1px solid var(--neon);border-radius:9px;padding:10px;color:var(--neon);font-family:'Orbitron',monospace;font-size:9px;cursor:pointer;letter-spacing:1px;">SEND RESET EMAIL</button>
     </div>
   </div>
 </div>
 
 <!-- MAIN APP -->
-<div class="app-screen" id="appScreen">
+<div id="appScreen">
 
   <!-- GPS PERMISSION MODAL -->
-  <div class="perm-modal" id="permModal">
-    <div class="perm-icon">&#127757;</div>
+  <div class="perm-modal show" id="permModal">
+    <div class="perm-icon">ðŸ“¡</div>
     <div class="perm-title">LOCATION ACCESS</div>
-    <div class="perm-sub">SpeedX Pro needs GPS to track your speed, distance and route. Your location is not stored on any server.</div>
+    <div class="perm-sub">SpeedX Pro needs GPS to track your real speed and route. Your location is never stored on any server.</div>
     <button class="perm-allow" onclick="requestGPS()">ALLOW LOCATION</button>
     <button class="perm-deny" onclick="startDemoMode()">USE DEMO MODE</button>
   </div>
 
   <!-- MODE MODAL -->
-  <div class="modal hide" id="modeModal">
+  <div class="modal" id="modeModal">
     <div class="modal-card">
       <div class="modal-title">SELECT TRANSPORT MODE</div>
-      <div class="mopt on" onclick="setMode('walking')" id="mopt-walking"><span style="font-size:22px;">&#128694;</span><div class="mopt-lbl">WALKING</div></div>
-      <div class="mopt" onclick="setMode('bike')" id="mopt-bike"><span style="font-size:22px;">&#128690;</span><div class="mopt-lbl">BIKE / CYCLE</div></div>
-      <div class="mopt" onclick="setMode('car')" id="mopt-car"><span style="font-size:22px;">&#128665;</span><div class="mopt-lbl">CAR / VEHICLE</div></div>
+      <div class="mopt on" onclick="setMode('walking')" id="mopt-walking"><span style="font-size:20px;">ðŸš¶</span><div class="mopt-lbl">WALKING</div></div>
+      <div class="mopt" onclick="setMode('bike')" id="mopt-bike"><span style="font-size:20px;">ðŸš²</span><div class="mopt-lbl">BIKE / CYCLE</div></div>
+      <div class="mopt" onclick="setMode('car')" id="mopt-car"><span style="font-size:20px;">ðŸš—</span><div class="mopt-lbl">CAR / VEHICLE</div></div>
     </div>
   </div>
 
@@ -489,8 +348,8 @@ html,body{height:100%;overflow:hidden;font-family:'Rajdhani',sans-serif;backgrou
   <div class="topbar">
     <div class="logo">SPEED<span>X</span></div>
     <div class="top-right">
-      <div class="mode-chip" onclick="document.getElementById('modeModal').classList.remove('hide')" id="modeChip">WALKING</div>
-      <button class="theme-btn" onclick="toggleTheme()" id="themeBtn">&#9790;</button>
+      <div class="mode-chip" onclick="openModeModal()" id="modeChip">WALKING</div>
+      <button class="theme-btn" onclick="toggleTheme()" id="themeBtn">ðŸŒ™</button>
       <div class="user-chip" onclick="showPage('profile')">
         <div class="user-av" id="topAv">S</div>
         <div class="user-nm" id="topNm">USER</div>
@@ -501,9 +360,8 @@ html,body{height:100%;overflow:hidden;font-family:'Rajdhani',sans-serif;backgrou
   <!-- PAGES -->
   <div class="pages">
 
-    <!-- â•â• SPEED PAGE â•â• -->
+    <!-- SPEED PAGE -->
     <div class="page active pg-pad" id="page-speed">
-      <div class="ad"><span class="ad-tag">AD</span><span class="ad-txt">Tata Nexon EV - Rs.14.99L - Best EV 2025</span><button class="ad-btn">BOOK</button></div>
 
       <!-- GPS ROW -->
       <div class="gps-row">
@@ -516,14 +374,14 @@ html,body{height:100%;overflow:hidden;font-family:'Rajdhani',sans-serif;backgrou
 
       <!-- ALERT -->
       <div class="alert-bar" id="alertBar">
-        <span style="font-size:18px;">&#9888;</span>
+        <span style="font-size:16px;">âš ï¸</span>
         <div class="alert-txt">SPEED LIMIT EXCEEDED!</div>
       </div>
 
       <!-- GAUGE -->
-      <div class="card" style="padding:14px 12px 11px;">
+      <div class="card" style="padding:12px 10px 10px;">
         <div class="speedo-wrap">
-          <canvas id="gaugeCanvas" width="280" height="158"></canvas>
+          <canvas id="gaugeCanvas" width="280" height="155"></canvas>
           <div class="gauge-center">
             <div class="spd-big" id="spdBig">0</div>
             <div class="spd-unit">KM/H</div>
@@ -537,24 +395,24 @@ html,body{height:100%;overflow:hidden;font-family:'Rajdhani',sans-serif;backgrou
         </div>
       </div>
 
-      <!-- IDLE TIME -->
+      <!-- STATUS ROW -->
       <div class="card2" style="display:flex;align-items:center;justify-content:space-between;">
         <div>
-          <div style="font-family:'Orbitron',monospace;font-size:9px;color:var(--muted);letter-spacing:2px;">IDLE TIME</div>
-          <div class="dval" id="idleTime" style="font-size:18px;">00:00</div>
+          <div style="font-family:'Orbitron',monospace;font-size:7px;color:var(--muted);letter-spacing:2px;">IDLE TIME</div>
+          <div class="dval" id="idleTime" style="font-size:16px;">00:00</div>
         </div>
         <div>
-          <div style="font-family:'Orbitron',monospace;font-size:9px;color:var(--muted);letter-spacing:2px;">STATUS</div>
-          <div style="font-family:'Orbitron',monospace;font-size:13px;color:var(--green);" id="movStatus">STOPPED</div>
+          <div style="font-family:'Orbitron',monospace;font-size:7px;color:var(--muted);letter-spacing:2px;">STATUS</div>
+          <div style="font-family:'Orbitron',monospace;font-size:12px;color:var(--green);" id="movStatus">STOPPED</div>
         </div>
         <div>
-          <div style="font-family:'Orbitron',monospace;font-size:9px;color:var(--muted);letter-spacing:2px;">BATTERY</div>
-          <div style="font-family:'Orbitron',monospace;font-size:13px;color:var(--neon);" id="battLevel">--</div>
+          <div style="font-family:'Orbitron',monospace;font-size:7px;color:var(--muted);letter-spacing:2px;">BATTERY</div>
+          <div style="font-family:'Orbitron',monospace;font-size:12px;color:var(--neon);" id="battLevel">--</div>
         </div>
       </div>
 
       <!-- SPEED LIMIT -->
-      <div class="card" style="padding:11px 13px;">
+      <div class="card" style="padding:10px 12px;">
         <div class="lim-row">
           <div class="lim-lbl">SPEED LIMIT</div>
           <div class="lim-ctrl">
@@ -562,7 +420,7 @@ html,body{height:100%;overflow:hidden;font-family:'Rajdhani',sans-serif;backgrou
             <div class="lval" id="limVal">60</div>
             <button class="lbtn" onclick="chgLimit(+5)">+</button>
           </div>
-          <div style="font-size:10px;color:var(--muted);">km/h</div>
+          <div style="font-size:9px;color:var(--muted);">km/h</div>
         </div>
       </div>
 
@@ -573,29 +431,45 @@ html,body{height:100%;overflow:hidden;font-family:'Rajdhani',sans-serif;backgrou
         <div class="dbox card"><div class="dval" id="tMax">0</div><div class="dlbl">MAX KMH</div></div>
       </div>
 
-      <!-- TRIP BUTTONS -->
-      <div class="tbtns">
-        <button class="tbtn btn-start" id="btnStart" onclick="startTrip()">&#9654; START</button>
-        <button class="tbtn btn-stop" id="btnStop" onclick="stopTrip()" disabled>&#9632; STOP</button>
-        <button class="tbtn btn-reset" onclick="resetTrip()">RESET</button>
+      <!-- MINI MAP -->
+      <div class="card" style="padding:0;overflow:hidden;">
+        <div id="miniMap"></div>
       </div>
 
-      <div class="ad"><span class="ad-tag">AD</span><span class="ad-txt">Bike Insurance Rs.714/yr - PolicyBazaar</span><button class="ad-btn">GET</button></div>
+      <!-- AD BANNERS â€” rotate between different ads -->
+      <div class="ad-banner" id="adBanner1">
+        <span class="ad-tag">AD</span>
+        <span class="ad-txt" id="adTxt1">Tata Nexon EV - Rs.14.99L - Best EV 2025</span>
+        <button class="ad-btn">BOOK</button>
+      </div>
+
+      <div class="ad-banner" id="adBanner2" style="display:none;">
+        <span class="ad-tag">AD</span>
+        <span class="ad-txt" id="adTxt2">Bike Insurance Rs.714/yr - PolicyBazaar</span>
+        <button class="ad-btn">GET</button>
+      </div>
+
+      <div class="ad-banner" id="adBanner3" style="display:none;">
+        <span class="ad-tag">AD</span>
+        <span class="ad-txt">Car Service at Home - GoMechanic</span>
+        <button class="ad-btn">BOOK</button>
+      </div>
+
     </div>
 
-    <!-- â•â• MAP PAGE â•â• -->
-    <div class="page" id="page-map" style="padding:0;display:flex;flex-direction:column;">
+    <!-- MAP PAGE -->
+    <div class="page" id="page-map" style="padding:0;display:flex;flex-direction:column;position:relative;">
       <div id="map" style="flex:1;"></div>
       <div class="map-ov">
         <div>
-          <div class="map-spd" id="mapSpd">0 <span style="font-size:11px;color:var(--muted);">km/h</span></div>
-          <div style="font-size:10px;color:var(--text2);" id="mapCoords">Locating...</div>
+          <div class="map-spd" id="mapSpd">0 <span style="font-size:10px;color:var(--muted);">km/h</span></div>
+          <div style="font-size:9px;color:var(--text2);" id="mapCoords">Locating...</div>
         </div>
         <button class="save-btn" onclick="saveLocation()">SAVE LOCATION</button>
       </div>
     </div>
 
-    <!-- â•â• STATS PAGE â•â• -->
+    <!-- STATS PAGE -->
     <div class="page pg-pad" id="page-stats">
       <div class="stats-grid">
         <div class="scard"><div class="sval" id="stDist">0.0</div><div class="slbl">TOTAL KM</div></div>
@@ -610,16 +484,16 @@ html,body{height:100%;overflow:hidden;font-family:'Rajdhani',sans-serif;backgrou
         <div style="display:flex;gap:10px;align-items:center;">
           <div class="score-circle score-good" id="scoreCircle">--</div>
           <div>
-            <div style="font-family:'Orbitron',monospace;font-size:13px;color:var(--text);" id="scoreLabel">Complete a trip to analyze</div>
-            <div style="font-size:11px;color:var(--muted);margin-top:4px;" id="scoreDetail"></div>
+            <div style="font-family:'Orbitron',monospace;font-size:12px;color:var(--text);" id="scoreLabel">Complete a trip</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:3px;" id="scoreDetail"></div>
           </div>
         </div>
       </div>
 
       <!-- SPEED GRAPH -->
       <div class="card">
-        <div class="s-title">SPEED vs TIME GRAPH</div>
-        <canvas id="speedChart" height="110"></canvas>
+        <div class="s-title">SPEED vs TIME</div>
+        <canvas id="speedChart" height="100"></canvas>
       </div>
 
       <!-- DAILY CHALLENGES -->
@@ -631,37 +505,35 @@ html,body{height:100%;overflow:hidden;font-family:'Rajdhani',sans-serif;backgrou
       <!-- LEADERBOARD -->
       <div class="card">
         <div class="s-title">LEADERBOARD</div>
-        <div class="drow" style="margin-bottom:10px;">
-          <button onclick="loadLb('maxSpeed',this)" style="flex:1;padding:7px;border-radius:8px;border:1px solid var(--purple);background:rgba(124,77,255,0.15);color:var(--purple);font-family:'Orbitron',monospace;font-size:9px;cursor:pointer;" id="lb-max">MAX SPEED</button>
-          <button onclick="loadLb('totalDist',this)" style="flex:1;padding:7px;border-radius:8px;border:1px solid var(--border2);background:transparent;color:var(--muted);font-family:'Orbitron',monospace;font-size:9px;cursor:pointer;" id="lb-dist">DISTANCE</button>
+        <div class="drow" style="margin-bottom:9px;">
+          <button onclick="loadLb('maxSpeed',this)" style="flex:1;padding:6px;border-radius:7px;border:1px solid var(--purple);background:rgba(124,77,255,.15);color:var(--purple);font-family:'Orbitron',monospace;font-size:8px;cursor:pointer;" id="lb-max">MAX SPEED</button>
+          <button onclick="loadLb('totalDist',this)" style="flex:1;padding:6px;border-radius:7px;border:1px solid var(--border2);background:transparent;color:var(--muted);font-family:'Orbitron',monospace;font-size:8px;cursor:pointer;" id="lb-dist">DISTANCE</button>
         </div>
-        <div id="lbList"><div class="empty"><div class="big">&#127942;</div><p>Loading...</p></div></div>
+        <div id="lbList"><div class="empty"><div class="big">ðŸ†</div><p>Loading...</p></div></div>
       </div>
 
       <button class="export-btn" onclick="exportCSV()">EXPORT TRIP DATA AS CSV</button>
     </div>
 
-    <!-- â•â• HISTORY PAGE â•â• -->
+    <!-- HISTORY PAGE -->
     <div class="page pg-pad" id="page-history">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-        <div style="font-family:'Orbitron',monospace;font-size:11px;color:var(--neon);letter-spacing:3px;">TRIP HISTORY</div>
-        <button onclick="showPage('speed')" style="background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--muted);font-family:'Orbitron',monospace;font-size:9px;padding:4px 10px;cursor:pointer;">&#8592; BACK</button>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:9px;">
+        <div style="font-family:'Orbitron',monospace;font-size:10px;color:var(--neon);letter-spacing:3px;">TRIP HISTORY</div>
+        <button onclick="showPage('speed')" style="background:transparent;border:1px solid var(--border);border-radius:7px;color:var(--muted);font-family:'Orbitron',monospace;font-size:8px;padding:3px 9px;cursor:pointer;">â† BACK</button>
       </div>
-      <div class="ad" style="margin-bottom:10px;"><span class="ad-tag">AD</span><span class="ad-txt">Car Service at Home - GoMechanic</span><button class="ad-btn">BOOK</button></div>
-      <!-- LAST TRIP SUMMARY -->
       <div id="lastSummary"></div>
-      <div id="histList"><div class="empty"><div class="big">&#128241;</div><p>NO TRIPS YET</p></div></div>
+      <div id="histList"><div class="empty"><div class="big">ðŸ“±</div><p>NO TRIPS YET</p></div></div>
     </div>
 
-    <!-- â•â• PROFILE PAGE â•â• -->
+    <!-- PROFILE PAGE -->
     <div class="page pg-pad" id="page-profile">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-        <div style="font-family:'Orbitron',monospace;font-size:11px;color:var(--neon);letter-spacing:3px;">MY PROFILE</div>
-        <button onclick="showPage('speed')" style="background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--muted);font-family:'Orbitron',monospace;font-size:9px;padding:4px 10px;cursor:pointer;">&#8592; BACK</button>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:9px;">
+        <div style="font-family:'Orbitron',monospace;font-size:10px;color:var(--neon);letter-spacing:3px;">MY PROFILE</div>
+        <button onclick="showPage('speed')" style="background:transparent;border:1px solid var(--border);border-radius:7px;color:var(--muted);font-family:'Orbitron',monospace;font-size:8px;padding:3px 9px;cursor:pointer;">â† BACK</button>
       </div>
       <div class="p-hero">
         <div class="pav" id="profileAv" onclick="document.getElementById('photoInput').click()">
-          S<div class="pav-ov">&#128247;</div>
+          S<div class="pav-ov">ðŸ“·</div>
         </div>
         <input type="file" id="photoInput" accept="image/*" style="display:none;" onchange="handlePhoto(event)">
         <div class="p-name" id="profileName">SPEEDX USER</div>
@@ -672,29 +544,29 @@ html,body{height:100%;overflow:hidden;font-family:'Rajdhani',sans-serif;backgrou
           <button class="mb" id="pb-car" onclick="setMode('car')">CAR</button>
         </div>
       </div>
-      <div class="card" style="margin-bottom:8px;">
+      <div class="card" style="margin:7px 0;">
         <div class="s-title">EDIT NAME</div>
-        <div style="display:flex;gap:8px;">
+        <div style="display:flex;gap:7px;">
           <input class="inp" id="nameInp" placeholder="Enter your name" type="text">
-          <button onclick="saveName()" style="background:var(--neon);border:none;border-radius:10px;padding:0 14px;color:#000;font-family:'Orbitron',monospace;font-size:9px;cursor:pointer;white-space:nowrap;">SAVE</button>
+          <button onclick="saveName()" style="background:var(--neon);border:none;border-radius:9px;padding:0 12px;color:#000;font-family:'Orbitron',monospace;font-size:8px;cursor:pointer;white-space:nowrap;">SAVE</button>
         </div>
       </div>
       <div class="sr">
-        <div class="sr-left"><div class="sr-icon">&#127769;</div><div><div class="sr-label">Theme</div><div class="sr-sub" id="themeLbl">Dark Mode</div></div></div>
-        <button onclick="toggleTheme()" style="background:var(--card);border:1px solid var(--border2);border-radius:8px;padding:5px 12px;color:var(--text2);cursor:pointer;font-size:11px;">TOGGLE</button>
+        <div class="sr-left"><div class="sr-icon">ðŸŒ™</div><div><div class="sr-label">Theme</div><div class="sr-sub" id="themeLbl">Dark Mode</div></div></div>
+        <button onclick="toggleTheme()" style="background:var(--card);border:1px solid var(--border2);border-radius:7px;padding:4px 11px;color:var(--text2);cursor:pointer;font-size:10px;">TOGGLE</button>
       </div>
       <div class="sr">
-        <div class="sr-left"><div class="sr-icon">&#128266;</div><div><div class="sr-label">Voice Alerts</div><div class="sr-sub">Speed & accident alerts</div></div></div>
-        <label style="position:relative;display:inline-block;width:40px;height:22px;">
+        <div class="sr-left"><div class="sr-icon">ðŸ”Š</div><div><div class="sr-label">Voice Alerts</div><div class="sr-sub">Speed & accident alerts</div></div></div>
+        <label style="position:relative;display:inline-block;width:38px;height:21px;">
           <input type="checkbox" id="voiceTgl" onchange="toggleVoice()" style="opacity:0;width:0;height:0;">
-          <span id="voiceSlider" style="position:absolute;cursor:pointer;inset:0;background:var(--border2);border-radius:22px;transition:0.3s;"></span>
+          <span id="voiceSlider" style="position:absolute;cursor:pointer;inset:0;background:var(--border2);border-radius:21px;transition:.3s;"></span>
         </label>
       </div>
-      <div class="sr" onclick="clearData()">
-        <div class="sr-left"><div class="sr-icon">&#128465;</div><div><div class="sr-label">Clear All Data</div><div class="sr-sub">Delete history & records</div></div></div>
-        <div style="color:var(--muted);font-size:14px;">&#8250;</div>
+      <div class="sr" onclick="clearData()" style="cursor:pointer;">
+        <div class="sr-left"><div class="sr-icon">ðŸ—‘ï¸</div><div><div class="sr-label">Clear All Data</div><div class="sr-sub">Delete history & records</div></div></div>
+        <div style="color:var(--muted);font-size:14px;">â€º</div>
       </div>
-      <button class="btn-out" onclick="fbLogout()">&#128682; LOGOUT</button>
+      <button class="btn-out" onclick="fbLogout()">ðŸšª LOGOUT</button>
     </div>
 
   </div><!-- end pages -->
@@ -725,10 +597,164 @@ html,body{height:100%;overflow:hidden;font-family:'Rajdhani',sans-serif;backgrou
 
 </div><!-- end app -->
 
+<!-- ===================== FIREBASE INIT ===================== -->
 <script>
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// STATE
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+const firebaseConfig = {
+  apiKey: "AIzaSyBNXyjGaSkkZHDDe3ODD_El7CamAldvhhA",
+  authDomain: "speedx-pro.firebaseapp.com",
+  projectId: "speedx-pro",
+  storageBucket: "speedx-pro.firebasestorage.app",
+  messagingSenderId: "251310953968",
+  appId: "1:251310953968:web:72cb57efb345aa9c8d7935",
+  measurementId: "G-S2MRNJRT2E"
+};
+
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+const gProvider = new firebase.auth.GoogleAuthProvider();
+
+// â”€â”€ Google Login â€” redirect method for WebView compatibility â”€â”€
+function fbGoogleLogin(){
+  showLoader('Signing in with Google...');
+  auth.signInWithRedirect(gProvider).catch(e=>{
+    hideLoader(); showAuthErr('Google login failed: '+e.message);
+  });
+}
+
+// â”€â”€ Handle redirect result after Google login â”€â”€
+auth.getRedirectResult().then(async result=>{
+  if(result && result.user) await fbSaveUser(result.user);
+}).catch(e=>{
+  if(e.code !== 'auth/no-auth-event') console.log('Redirect:', e.message);
+});
+
+// â”€â”€ Email Login â”€â”€
+function fbEmailLogin(email, pass){
+  showLoader('Logging in...');
+  auth.signInWithEmailAndPassword(email, pass).catch(e=>{
+    hideLoader();
+    showAuthErr(e.code==='auth/wrong-password'||e.code==='auth/invalid-credential'
+      ? 'Wrong email or password!' : 'Login failed: '+e.message);
+  });
+}
+
+// â”€â”€ Register â”€â”€
+function fbRegister(name, email, pass){
+  showLoader('Creating account...');
+  auth.createUserWithEmailAndPassword(email, pass).then(async r=>{
+    await fbSaveUser(r.user, name);
+  }).catch(e=>{
+    hideLoader();
+    showAuthErr(e.code==='auth/email-already-in-use' ? 'Email already registered!'
+      : e.code==='auth/weak-password' ? 'Password must be 6+ chars!'
+      : 'Register failed: '+e.message);
+  });
+}
+
+// â”€â”€ Forgot Password â”€â”€
+function fbForgotPwd(email){
+  if(!email){showAuthErr('Enter email first!');return;}
+  showLoader('Sending...');
+  auth.sendPasswordResetEmail(email).then(()=>{
+    hideLoader(); showAuthOk('Reset email sent! Check inbox.');
+    document.getElementById('forgotDiv').style.display='none';
+  }).catch(()=>{ hideLoader(); showAuthErr('Enter a valid email!'); });
+}
+
+// â”€â”€ Logout â”€â”€
+function fbLogout(){
+  auth.signOut().then(()=>{
+    window.currentUser = null; window.currentUserData = null;
+    document.getElementById('authScreen').classList.add('show');
+    document.getElementById('appScreen').classList.remove('show');
+  });
+}
+
+// â”€â”€ Save User to Firestore â”€â”€
+async function fbSaveUser(user, name){
+  try{
+    const ref = db.collection('users').doc(user.uid);
+    const snap = await ref.get();
+    if(!snap.exists){
+      const data = {
+        uid:user.uid, name:name||user.displayName||'SpeedX User',
+        email:user.email, photoURL:user.photoURL||'',
+        trips:0, totalDist:0, maxSpeed:0, totalTime:0,
+        joined:firebase.firestore.FieldValue.serverTimestamp()
+      };
+      await ref.set(data);
+      window.currentUserData = data;
+    } else {
+      window.currentUserData = snap.data();
+    }
+  }catch(e){console.log('Save user error:',e);}
+}
+
+// â”€â”€ Save Trip to Firestore â”€â”€
+async function fbSaveTrip(trip){
+  if(!auth.currentUser) return;
+  try{
+    await db.collection('trips').add({...trip, uid:auth.currentUser.uid, timestamp:firebase.firestore.FieldValue.serverTimestamp()});
+    const ref = db.collection('users').doc(auth.currentUser.uid);
+    const snap = await ref.get();
+    if(snap.exists){
+      const d = snap.data();
+      const updated = {
+        ...d, trips:(d.trips||0)+1,
+        totalDist:parseFloat(((d.totalDist||0)+trip.dist).toFixed(2)),
+        maxSpeed:Math.max(d.maxSpeed||0, trip.maxSpd),
+        totalTime:(d.totalTime||0)+trip.duration
+      };
+      await ref.set(updated);
+      window.currentUserData = updated;
+      await db.collection('leaderboard').doc(auth.currentUser.uid).set({
+        uid:auth.currentUser.uid, name:updated.name||'User',
+        maxSpeed:updated.maxSpeed, totalDist:updated.totalDist, trips:updated.trips
+      });
+    }
+  }catch(e){console.log('Save trip error:',e);}
+}
+
+// â”€â”€ Load Trips from Firestore â”€â”€
+async function fbLoadTrips(){
+  if(!auth.currentUser) return [];
+  try{
+    const q = await db.collection('trips')
+      .where('uid','==',auth.currentUser.uid)
+      .orderBy('timestamp','desc').limit(30).get();
+    return q.docs.map(d=>d.data());
+  }catch(e){return [];}
+}
+
+// â”€â”€ Load Leaderboard â”€â”€
+async function fbLoadLeaderboard(field='maxSpeed'){
+  try{
+    const q = await db.collection('leaderboard').orderBy(field,'desc').limit(10).get();
+    return q.docs.map(d=>d.data());
+  }catch(e){return [];}
+}
+
+// â”€â”€ Auth State Change â”€â”€
+auth.onAuthStateChanged(async user=>{
+  hideLoader();
+  if(user){
+    window.currentUser = user;
+    try{
+      const snap = await db.collection('users').doc(user.uid).get();
+      if(snap.exists) window.currentUserData = snap.data();
+      else await fbSaveUser(user);
+    }catch(e){}
+    launchMainApp();
+  } else {
+    showAuth();
+  }
+});
+</script>
+
+<!-- ===================== APP LOGIC ===================== -->
+<script>
+// â”€â”€ State â”€â”€
 const S = {
   speed:0, maxSpd:0, avgSpd:0, dist:0, tripTime:0,
   running:false, tripStart:null,
@@ -737,53 +763,47 @@ const S = {
   isDemo:false, gpsOk:false,
   voiceOn:false, lastAlert:0,
   idleTime:0, idleStart:null, isMoving:false,
-  // AI analysis
   accelEvents:0, brakeEvents:0, overLimitEvents:0,
   prevSpeed:0, prevSpeedTime:0,
-  // battery saver
   lowBattery:false,
-  // totals
   totalDist:parseFloat(ls('sx_tdist')||0),
   totalTime:parseInt(ls('sx_ttime')||0),
   allMax:parseInt(ls('sx_amax')||0),
   totalTrips:parseInt(ls('sx_trips')||0),
 };
-let spdHist=[],prevPos=null,watchId=null,timerIv=null,demoIv=null,idleIv=null;
+let spdHist=[],prevPos=null,watchId=null,timerIv=null,demoIv=null;
 let tripHistory=JSON.parse(ls('sx_history')||'[]');
-let mapInited=false,leafMap=null,routeLine=null,mapMarker=null,routePts=[];
-let speedChart=null,chartInited=false;
-let lastTripSummary=null;
-// Anti-cheat
-let prevPositions = [];
+let mapInited=false,miniMapInited=false,leafMap=null,miniLeafMap=null;
+let routeLine=null,miniRouteLine=null,mapMarker=null,miniMapMarker=null,routePts=[];
+let speedChart=null,chartInited=false,lastTripSummary=null;
+let authMode='login';
 
 function ls(k){return localStorage.getItem(k);}
 function lss(k,v){localStorage.setItem(k,v);}
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// THEME
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// â”€â”€ THEME â”€â”€
 let isDark = ls('sx_theme')!=='light';
 function applyTheme(){
   document.body.setAttribute('data-theme',isDark?'dark':'light');
-  document.getElementById('themeBtn').innerHTML=isDark?'&#9790;':'&#9728;';
+  document.getElementById('themeBtn').innerHTML=isDark?'ðŸŒ™':'â˜€ï¸';
   const l=document.getElementById('themeLbl');
   if(l)l.textContent=isDark?'Dark Mode':'Light Mode';
   lss('sx_theme',isDark?'dark':'light');
-  if(speedChart){speedChart.options.scales.y.grid.color=isDark?'rgba(0,229,255,0.05)':'rgba(0,111,184,0.08)';speedChart.update();}
 }
 function toggleTheme(){isDark=!isDark;applyTheme();}
 applyTheme();
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// AUTH UI
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-function showLoader(t){document.getElementById('loader').classList.remove('hide');if(t)document.getElementById('loadTxt').textContent=t;}
+// â”€â”€ UI HELPERS â”€â”€
+function showLoader(t){
+  document.getElementById('loader').classList.remove('hide');
+  if(t)document.getElementById('loader').querySelector('.load-txt').textContent=t;
+}
 function hideLoader(){document.getElementById('loader').classList.add('hide');}
 function showAuthErr(m){const e=document.getElementById('authErr');e.textContent=m;e.style.display='block';document.getElementById('authOk').style.display='none';}
-function showAuthSuccess(m){const e=document.getElementById('authOk');e.textContent=m;e.style.display='block';document.getElementById('authErr').style.display='none';}
-function showToast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2600);}
+function showAuthOk(m){const e=document.getElementById('authOk');e.textContent=m;e.style.display='block';document.getElementById('authErr').style.display='none';}
+function showToast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2500);}
 
-let authMode='login';
+// â”€â”€ AUTH UI â”€â”€
 function swAuthTab(m){
   authMode=m;
   document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('on',(i===0&&m==='login')||(i===1&&m==='register')));
@@ -792,57 +812,86 @@ function swAuthTab(m){
   document.getElementById('authErr').style.display='none';
   document.getElementById('authOk').style.display='none';
 }
+
 function doAuth(){
   const email=document.getElementById('authEmail').value.trim();
   const pass=document.getElementById('authPass').value;
   const name=document.getElementById('authName').value.trim();
   document.getElementById('authErr').style.display='none';
   if(!email||!pass){showAuthErr('Please fill all fields!');return;}
-  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){showAuthErr('Invalid email format!');return;}
-  if(pass.length<6){showAuthErr('Password must be 6+ characters!');return;}
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){showAuthErr('Invalid email!');return;}
+  if(pass.length<6){showAuthErr('Password must be 6+ chars!');return;}
   if(authMode==='register'){if(!name){showAuthErr('Enter your name!');return;}fbRegister(name,email,pass);}
   else{fbEmailLogin(email,pass);}
 }
 
-window.showAuth=()=>{
-  document.getElementById('authScreen').classList.add('active');
-  document.getElementById('appScreen').classList.remove('active');
+function doForgot(){fbForgotPwd(document.getElementById('forgotEmail').value.trim());}
+function toggleForgot(){
+  const d=document.getElementById('forgotDiv');
+  d.style.display=d.style.display==='flex'?'none':'flex';
+}
+
+function showAuth(){
+  document.getElementById('authScreen').classList.add('show');
+  document.getElementById('appScreen').classList.remove('show');
   hideLoader();
-};
-window.launchMainApp=()=>{
-  document.getElementById('authScreen').classList.remove('active');
-  document.getElementById('appScreen').classList.add('active');
+}
+
+function launchMainApp(){
+  document.getElementById('authScreen').classList.remove('show');
+  document.getElementById('appScreen').classList.add('show');
   hideLoader();
   updateUserUI();
   initChart();
   loadChallenges();
   initBatteryMonitor();
   fetchWeather();
-  setTimeout(()=>{document.getElementById('permModal').classList.remove('hide');},300);
-};
+  initMiniMap();
+  rotateAds();
+  // Auto-save on page hide (app exit)
+  document.addEventListener('visibilitychange',()=>{
+    if(document.hidden && S.running) autoSaveOnExit();
+  });
+  window.addEventListener('pagehide',()=>{ if(S.running) autoSaveOnExit(); });
+  setTimeout(()=>document.getElementById('permModal').classList.add('show'),200);
+}
+
+function autoSaveOnExit(){
+  // Save trip to history when user exits app
+  if(S.dist>=0.01){
+    saveTrip();
+    showToast('Trip auto-saved!');
+  }
+  // Reset current session data
+  S.running=false;
+  clearInterval(timerIv); clearInterval(demoIv);
+  demoIv=null;
+  S.speed=0; S.maxSpd=0; S.avgSpd=0; S.dist=0; S.tripTime=0;
+  S.tripStart=null; S.idleTime=0; S.idleStart=null;
+  spdHist=[]; prevPos=null; routePts=[];
+  updateSpeed(0);
+}
 
 function updateUserUI(){
   const u=window.currentUserData||{};
   const n=(u.name||window.currentUser?.displayName||'User').toUpperCase();
-  const ini=n.charAt(0);
   document.getElementById('topNm').textContent=n.slice(0,8);
   document.getElementById('profileName').textContent=n;
   document.getElementById('profileEmail').textContent=u.email||window.currentUser?.email||'';
   const ph=u.photoURL||window.currentUser?.photoURL||ls('sx_photo');
   if(ph){
     document.getElementById('topAv').innerHTML=`<img src="${ph}">`;
-    document.getElementById('profileAv').innerHTML=`<img src="${ph}"><div class="pav-ov">&#128247;</div>`;
+    document.getElementById('profileAv').innerHTML=`<img src="${ph}"><div class="pav-ov">ðŸ“·</div>`;
   } else {
+    const ini=n.charAt(0);
     document.getElementById('topAv').textContent=ini;
-    document.getElementById('profileAv').innerHTML=`${ini}<div class="pav-ov">&#128247;</div>`;
+    document.getElementById('profileAv').innerHTML=`${ini}<div class="pav-ov">ðŸ“·</div>`;
   }
   const ni=document.getElementById('nameInp');
-  if(ni)ni.value=u.name||'';
+  if(ni) ni.value=u.name||'';
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// PAGE NAV
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// â”€â”€ PAGE NAV â”€â”€
 function showPage(pg){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.ni').forEach(n=>n.classList.remove('on'));
@@ -851,9 +900,7 @@ function showPage(pg){
   if(ni)ni.classList.add('on');
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// MODE
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// â”€â”€ MODE â”€â”€
 function setMode(m){
   S.mode=m;
   const labels={walking:'WALKING',bike:'BIKE',car:'CAR'};
@@ -864,56 +911,59 @@ function setMode(m){
     document.getElementById('pb-'+x)?.classList.toggle('on',x===m);
   });
   lss('sx_mode',m);
-  document.getElementById('modeModal').classList.add('hide');
+  document.getElementById('modeModal').classList.remove('show');
 }
 setMode(ls('sx_mode')||'walking');
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// GPS â€” SMART FILTER
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+function openModeModal(){document.getElementById('modeModal').classList.add('show');}
+document.getElementById('modeModal').addEventListener('click',function(e){if(e.target===this)this.classList.remove('show');});
+
+// â”€â”€ ROTATING ADS â”€â”€
+function rotateAds(){
+  const ads=['adBanner1','adBanner2','adBanner3'];
+  let idx=0;
+  setInterval(()=>{
+    ads.forEach(id=>document.getElementById(id).style.display='none');
+    idx=(idx+1)%ads.length;
+    document.getElementById(ads[idx]).style.display='flex';
+  },5000);
+}
+
+// â”€â”€ GPS â”€â”€
 function requestGPS(){
-  document.getElementById('permModal').classList.add('hide');
+  document.getElementById('permModal').classList.remove('show');
   if(!navigator.geolocation){startDemoMode();return;}
   document.getElementById('gpsDot').className='gps-dot searching';
   document.getElementById('gpsTxt').textContent='Searching GPS...';
   navigator.geolocation.getCurrentPosition(
     ()=>{
       S.gpsOk=true;
-      const interval = S.lowBattery ? 3000 : 1000;
-      watchId=navigator.geolocation.watchPosition(onPos,onGPSErr,{
-        enableHighAccuracy:true, maximumAge:interval, timeout:15000
+      watchId=navigator.geolocation.watchPosition(onPos, onGPSErr, {
+        enableHighAccuracy:true, maximumAge:0, timeout:30000
       });
     },
-    err=>startDemoMode(),
-    {enableHighAccuracy:true,timeout:10000}
+    err=>{
+      document.getElementById('gpsDot').className='gps-dot';
+      document.getElementById('gpsTxt').textContent='GPS Error â€” Tap to retry';
+      document.getElementById('gpsTxt').style.cursor='pointer';
+      document.getElementById('gpsTxt').onclick=()=>{
+        document.getElementById('gpsTxt').onclick=null;
+        requestGPS();
+      };
+      showToast('GPS failed: '+err.message);
+    },
+    {enableHighAccuracy:true, timeout:15000}
   );
 }
 
 function onPos(pos){
-  const {latitude:lat,longitude:lon,speed,accuracy,heading}=pos.coords;
-
-  // â•â•â• SMART GPS FILTERING â•â•â•
-  // 1. Accuracy filter â€” ignore if >20m
-  if(accuracy > 20){
-    document.getElementById('gpsAcc').textContent='~'+Math.round(accuracy)+'m';
-    document.getElementById('gpsAcc').className='gps-acc bad';
-    return;
-  }
-
-  // Anti-cheat: detect unrealistic speed
-  if(speed!==null && speed*3.6 > 300){
-    showToast('Warning: Unrealistic GPS speed detected!');
-    return;
-  }
-
+  const{latitude:lat,longitude:lon,speed,accuracy,heading}=pos.coords;
+  document.getElementById('gpsAcc').textContent='~'+Math.round(accuracy)+'m';
+  document.getElementById('gpsAcc').className=accuracy<=50?'gps-acc good':'gps-acc bad';
   document.getElementById('gpsDot').className='gps-dot locked';
   document.getElementById('gpsTxt').textContent='GPS Locked';
-  document.getElementById('gpsAcc').textContent='~'+Math.round(accuracy)+'m';
-  document.getElementById('gpsAcc').className='gps-acc good';
   document.getElementById('mapCoords').textContent=lat.toFixed(4)+', '+lon.toFixed(4);
 
-  // Compass
-  S.heading=heading;
   if(heading!==null&&!isNaN(heading)){
     const dirs=['N','NE','E','SE','S','SW','W','NW'];
     document.getElementById('compassEl').textContent=dirs[Math.round(heading/45)%8];
@@ -921,34 +971,22 @@ function onPos(pos){
 
   S.lat=lat; S.lon=lon; S.acc=accuracy;
 
-  // 2. Calculate speed
   let kmh=0;
-  if(speed!==null&&speed>=0){
-    kmh=speed*3.6;
-  } else if(prevPos){
+  if(speed!==null&&speed>=0) kmh=speed*3.6;
+  else if(prevPos){
     const dt=(Date.now()-prevPos.time)/3600000;
-    if(dt>0){
-      const d=haversine(prevPos.lat,prevPos.lon,lat,lon);
-      kmh=d/dt;
-    }
+    if(dt>0) kmh=haversine(prevPos.lat,prevPos.lon,lat,lon)/dt;
   }
-
-  // 3. Stopped detection: <2 km/h = stopped
   if(kmh<2) kmh=0;
 
-  // 4. Distance â€” only if moving + min movement 10m
   if(prevPos&&S.running&&kmh>2){
     const d=haversine(prevPos.lat,prevPos.lon,lat,lon);
-    // 5. Ignore small GPS drift <10m (0.01 km)
-    if(d>0.01&&d<0.5){ // also ignore >500m jumps (anti-cheat)
-      S.dist+=d;
-      document.getElementById('tDist').textContent=S.dist.toFixed(2);
-    }
+    if(d>0.01&&d<0.5) S.dist+=d;
+    document.getElementById('tDist').textContent=S.dist.toFixed(2);
   }
 
   prevPos={lat,lon,time:Date.now()};
 
-  // AI: detect acceleration/braking
   const now=Date.now();
   if(S.prevSpeedTime&&(now-S.prevSpeedTime)<3000){
     const delta=kmh-S.prevSpeed;
@@ -957,32 +995,28 @@ function onPos(pos){
   }
   S.prevSpeed=kmh; S.prevSpeedTime=now;
 
-  // Accident detection
-  if(S.running&&S.prevSpeed>30&&kmh===0){
-    triggerAccidentAlert();
-  }
+  if(S.running&&S.prevSpeed>30&&kmh===0) triggerAccidentAlert();
 
-  // Moving status
   S.isMoving=kmh>2;
   document.getElementById('movStatus').textContent=S.isMoving?'MOVING':'STOPPED';
   document.getElementById('movStatus').style.color=S.isMoving?'var(--green)':'var(--warn)';
 
   updateSpeed(kmh);
-  updateMapMarker(lat,lon);
+  updateMapMarkers(lat,lon);
 }
 
 function onGPSErr(err){
   document.getElementById('gpsDot').className='gps-dot';
-  document.getElementById('gpsTxt').textContent='GPS Error - '+err.message;
+  document.getElementById('gpsTxt').textContent='GPS Error: '+err.message;
 }
 
 function startDemoMode(){
   S.isDemo=true;
-  document.getElementById('permModal').classList.add('hide');
+  document.getElementById('permModal').classList.remove('show');
   document.getElementById('gpsDot').className='gps-dot searching';
-  document.getElementById('gpsTxt').textContent='Demo Mode - GPS Simulated';
-  S.lat=25.7340;S.lon=88.0022;
-  showToast('Demo mode - GPS simulated');
+  document.getElementById('gpsTxt').textContent='Demo Mode â€” GPS Simulated';
+  S.lat=25.7340; S.lon=88.0022;
+  showToast('Demo mode ON â€” Press START to begin');
 }
 
 function haversine(a,b,c,d){
@@ -991,9 +1025,7 @@ function haversine(a,b,c,d){
   return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// SPEED UPDATE
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// â”€â”€ SPEED UPDATE â”€â”€
 function updateSpeed(kmh){
   S.speed=Math.round(kmh);
   const pad=n=>String(Math.round(n)).padStart(3,'0');
@@ -1014,94 +1046,73 @@ function updateSpeed(kmh){
     document.getElementById('dAvg').textContent=pad(avg);
     updateChart(S.speed);
   }
-  const spd=document.getElementById('spdBig');
-  if(S.speed>S.limit){
-    spd.style.color='var(--danger)';
-    document.getElementById('alertBar').classList.add('show');
-    S.overLimitEvents++;
-    triggerAlert();
-  } else {
-    spd.style.color='var(--neon)';
-    document.getElementById('alertBar').classList.remove('show');
-  }
+
+  document.getElementById('spdBig').style.color=S.speed>S.limit?'var(--danger)':'var(--neon)';
+  document.getElementById('alertBar').classList.toggle('show', S.speed>S.limit);
+  if(S.speed>S.limit){ S.overLimitEvents++; triggerAlert(); }
   drawGauge(S.speed);
   updateIdleTracking();
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// IDLE TRACKING
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// â”€â”€ IDLE â”€â”€
 function updateIdleTracking(){
   if(S.speed===0&&S.running){
-    if(!S.idleStart)S.idleStart=Date.now();
+    if(!S.idleStart) S.idleStart=Date.now();
     S.idleTime=Math.floor((Date.now()-S.idleStart)/1000);
     const m=String(Math.floor(S.idleTime/60)).padStart(2,'0');
-    const sec=String(S.idleTime%60).padStart(2,'0');
-    document.getElementById('idleTime').textContent=m+':'+sec;
+    const s2=String(S.idleTime%60).padStart(2,'0');
+    document.getElementById('idleTime').textContent=m+':'+s2;
   } else {
     S.idleStart=null;
   }
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// GAUGE
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// â”€â”€ GAUGE â”€â”€
 const gc=document.getElementById('gaugeCanvas').getContext('2d');
-const CX=140,CY=148,R=112,SA=Math.PI*.75,EA=Math.PI*2.25,MAXK=200;
+const CX=140,CY=148,R=110,SA=Math.PI*.75,EA=Math.PI*2.25,MAXK=200;
 
 function drawGauge(spd){
-  gc.clearRect(0,0,280,158);
+  gc.clearRect(0,0,280,155);
   const r=Math.min(spd/MAXK,1),lr=Math.min(S.limit/MAXK,1);
-  const la=SA+(EA-SA)*lr,sa2=SA+(EA-SA)*r;
-  const d=document.body.getAttribute('data-theme')!=='light';
-  const bg=d?'#1a2e4a':'#c0d4e8';
-  const nc=d?'#00e5ff':'#006fb8';
-  const gc2=d?'#00e676':'#1b5e20';
-  const dc=d?'#ff1744':'#b71c1c';
+  const la=SA+(EA-SA)*lr, sa2=SA+(EA-SA)*r;
+  const dark=document.body.getAttribute('data-theme')!=='light';
+  const bg=dark?'#1a2e4a':'#c0d4e8';
+  const nc=dark?'#00e5ff':'#006fb8';
+  const gc2=dark?'#00e676':'#1b5e20';
+  const dc=dark?'#ff1744':'#b71c1c';
 
-  gc.beginPath();gc.arc(CX,CY,R,SA,EA);gc.strokeStyle=bg;gc.lineWidth=13;gc.lineCap='round';gc.stroke();
+  gc.beginPath();gc.arc(CX,CY,R,SA,EA);gc.strokeStyle=bg;gc.lineWidth=12;gc.lineCap='round';gc.stroke();
   for(let i=0;i<=20;i++){
     const a=SA+(EA-SA)*(i/20);
-    gc.beginPath();gc.moveTo(CX+Math.cos(a)*(R-13),CY+Math.sin(a)*(R-13));
-    gc.lineTo(CX+Math.cos(a)*(i%5===0?R-3:R-8),CY+Math.sin(a)*(i%5===0?R-3:R-8));
+    gc.beginPath();
+    gc.moveTo(CX+Math.cos(a)*(R-12),CY+Math.sin(a)*(R-12));
+    gc.lineTo(CX+Math.cos(a)*(i%5===0?R-2:R-7),CY+Math.sin(a)*(i%5===0?R-2:R-7));
     gc.strokeStyle=i%5===0?nc+'88':nc+'33';gc.lineWidth=i%5===0?2:1;gc.stroke();
   }
-  gc.beginPath();gc.arc(CX,CY,R,SA,la);gc.strokeStyle=gc2;gc.lineWidth=10;gc.lineCap='butt';gc.stroke();
-  gc.beginPath();gc.arc(CX,CY,R,la,EA);gc.strokeStyle=dc+'33';gc.lineWidth=10;gc.stroke();
+  gc.beginPath();gc.arc(CX,CY,R,SA,la);gc.strokeStyle=gc2;gc.lineWidth=9;gc.lineCap='butt';gc.stroke();
+  gc.beginPath();gc.arc(CX,CY,R,la,EA);gc.strokeStyle=dc+'33';gc.lineWidth=9;gc.stroke();
   if(r>0){
     const ov=spd>S.limit;
-    const g2=gc.createLinearGradient(CX-R,CY,CX+R,CY);
-    if(ov){g2.addColorStop(0,'#ff9100');g2.addColorStop(1,dc);}else{g2.addColorStop(0,nc);g2.addColorStop(1,nc);}
-    gc.beginPath();gc.arc(CX,CY,R,SA,sa2);gc.strokeStyle=g2;gc.lineWidth=10;gc.lineCap='round';gc.stroke();
-    gc.save();gc.shadowColor=ov?dc:nc;gc.shadowBlur=20;
-    gc.beginPath();gc.arc(CX,CY,R,SA,sa2);gc.strokeStyle=(ov?dc:nc)+'44';gc.lineWidth=4;gc.stroke();gc.restore();
-    gc.beginPath();gc.arc(CX+Math.cos(sa2)*R,CY+Math.sin(sa2)*R,7,0,Math.PI*2);
-    gc.fillStyle=ov?dc:nc;gc.shadowColor=ov?dc:nc;gc.shadowBlur=25;gc.fill();gc.shadowBlur=0;
+    gc.beginPath();gc.arc(CX,CY,R,SA,sa2);
+    gc.strokeStyle=ov?dc:nc;gc.lineWidth=9;gc.lineCap='round';gc.stroke();
+    gc.save();gc.shadowColor=ov?dc:nc;gc.shadowBlur=18;
+    gc.beginPath();gc.arc(CX+Math.cos(sa2)*R,CY+Math.sin(sa2)*R,6,0,Math.PI*2);
+    gc.fillStyle=ov?dc:nc;gc.fill();gc.restore();
   }
 }
 drawGauge(0);
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// CHART
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// â”€â”€ CHART â”€â”€
 function initChart(){
   if(chartInited)return;
   const ctx=document.getElementById('speedChart').getContext('2d');
   speedChart=new Chart(ctx,{
     type:'line',
-    data:{labels:[],datasets:[{label:'Speed',data:[],borderColor:'#00e5ff',backgroundColor:'rgba(0,229,255,0.07)',borderWidth:2,pointRadius:0,tension:0.4,fill:true}]},
-    options:{
-      responsive:true,maintainAspectRatio:true,animation:{duration:0},
-      plugins:{legend:{display:false}},
-      scales:{
-        x:{display:false},
-        y:{beginAtZero:true,grid:{color:'rgba(0,229,255,0.05)'},ticks:{color:'#3d5a6e',font:{size:9}}}
-      }
-    }
+    data:{labels:[],datasets:[{label:'Speed',data:[],borderColor:'#00e5ff',backgroundColor:'rgba(0,229,255,.07)',borderWidth:2,pointRadius:0,tension:.4,fill:true}]},
+    options:{responsive:true,maintainAspectRatio:true,animation:{duration:0},plugins:{legend:{display:false}},scales:{x:{display:false},y:{beginAtZero:true,grid:{color:'rgba(0,229,255,.05)'},ticks:{color:'#3d5a6e',font:{size:8}}}}}
   });
   chartInited=true;
 }
-
 function updateChart(speed){
   if(!speedChart)return;
   speedChart.data.labels.push('');
@@ -1110,9 +1121,7 @@ function updateChart(speed){
   speedChart.update('none');
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// ALERTS
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// â”€â”€ ALERTS â”€â”€
 let audioCtx=null;
 function triggerAlert(){
   const now=Date.now();
@@ -1123,7 +1132,8 @@ function triggerAlert(){
     if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)();
     const o=audioCtx.createOscillator(),g=audioCtx.createGain();
     o.connect(g);g.connect(audioCtx.destination);o.frequency.value=880;
-    g.gain.setValueAtTime(0.3,audioCtx.currentTime);g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+0.4);
+    g.gain.setValueAtTime(0.3,audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+0.4);
     o.start();o.stop(audioCtx.currentTime+0.4);
   }catch(e){}
   if(S.voiceOn&&'speechSynthesis'in window){
@@ -1149,52 +1159,50 @@ function toggleVoice(){
   lss('sx_voice',S.voiceOn?'1':'0');
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// TRIP CONTROL
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// â”€â”€ TRIP CONTROL â”€â”€
 function startTrip(){
-  S.running=true;S.tripStart=Date.now();
-  S.accelEvents=0;S.brakeEvents=0;S.overLimitEvents=0;
+  if(!S.lat){showToast('GPS not ready!');return;}
+  S.running=true; S.tripStart=Date.now();
+  S.accelEvents=0; S.brakeEvents=0; S.overLimitEvents=0;
   document.getElementById('btnStart').disabled=true;
   document.getElementById('btnStop').disabled=false;
-  spdHist=[];routePts=[];
-  if(S.isDemo)startDemo();
+  spdHist=[]; routePts=[];
+  if(S.isDemo) startDemo();
   timerIv=setInterval(()=>{
     const e=Math.floor((Date.now()-S.tripStart)/1000);
     S.tripTime=e;
     document.getElementById('tTime').textContent=String(Math.floor(e/60)).padStart(2,'0')+':'+String(e%60).padStart(2,'0');
   },1000);
-  showToast('Trip started!');
+  showToast('Trip started! ðŸš€');
 }
 
 function startDemo(){
-  let s=8,dir=1;
+  let s=0,dir=1;
   demoIv=setInterval(()=>{
+    if(!S.running){clearInterval(demoIv);return;}
     s+=dir*(Math.random()*7-2.5);
-    if(s>85)dir=-1;if(s<3)dir=1;s=Math.max(0,s);
-    if(S.running&&s>2){S.dist+=s/3600;document.getElementById('tDist').textContent=S.dist.toFixed(2);}
+    if(s>75)dir=-1; if(s<2)dir=1; s=Math.max(0,s);
+    if(s>2){S.dist+=s/3600;document.getElementById('tDist').textContent=S.dist.toFixed(2);}
     updateSpeed(s);
   },800);
 }
 
 function stopTrip(){
   S.running=false;
-  clearInterval(timerIv);clearInterval(demoIv);demoIv=null;
+  clearInterval(timerIv); clearInterval(demoIv); demoIv=null;
   document.getElementById('btnStart').disabled=false;
   document.getElementById('btnStop').disabled=true;
   const trip=saveTrip();
   if(trip)generateTripSummary(trip);
   updateSpeed(0);
-  showToast('Trip saved!');
+  showToast('Trip saved! âœ…');
 }
 
 function resetTrip(){
-  if(S.dist>0.01)saveTrip();
-  S.running=false;
-  clearInterval(timerIv);clearInterval(demoIv);demoIv=null;
-  S.speed=0;S.maxSpd=0;S.avgSpd=0;S.dist=0;S.tripTime=0;S.tripStart=null;
-  S.idleTime=0;S.idleStart=null;S.accelEvents=0;S.brakeEvents=0;S.overLimitEvents=0;
-  spdHist=[];prevPos=null;routePts=[];
+  if(S.running) stopTrip();
+  S.speed=0; S.maxSpd=0; S.avgSpd=0; S.dist=0; S.tripTime=0; S.tripStart=null;
+  S.idleTime=0; S.idleStart=null; S.accelEvents=0; S.brakeEvents=0; S.overLimitEvents=0;
+  spdHist=[]; prevPos=null; routePts=[];
   document.getElementById('btnStart').disabled=false;
   document.getElementById('btnStop').disabled=true;
   document.getElementById('tDist').textContent='0.0';
@@ -1204,7 +1212,7 @@ function resetTrip(){
   document.getElementById('dAvg').textContent='000';
   document.getElementById('idleTime').textContent='00:00';
   updateSpeed(0);
-  showToast('Reset! Data saved to history.');
+  showToast('Reset done!');
 }
 
 function saveTrip(){
@@ -1214,33 +1222,29 @@ function saveTrip(){
     date:new Date().toLocaleDateString('en-IN'),
     time:new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}),
     dist:parseFloat(S.dist.toFixed(2)),
-    maxSpd:S.maxSpd,duration:S.tripTime,avg:S.avgSpd,mode:S.mode,
-    accel:S.accelEvents,brake:S.brakeEvents,overLimit:S.overLimitEvents,
+    maxSpd:S.maxSpd, duration:S.tripTime, avg:S.avgSpd, mode:S.mode,
+    accel:S.accelEvents, brake:S.brakeEvents, overLimit:S.overLimitEvents,
     idleTime:S.idleTime,
   };
   tripHistory.unshift(trip);
   if(tripHistory.length>50)tripHistory=tripHistory.slice(0,50);
   lss('sx_history',JSON.stringify(tripHistory));
   S.totalDist=parseFloat((S.totalDist+trip.dist).toFixed(2));
-  S.totalTime+=trip.duration;S.totalTrips++;
-  if(S.maxSpd>S.allMax)S.allMax=S.maxSpd;
-  lss('sx_tdist',S.totalDist);lss('sx_ttime',S.totalTime);
-  lss('sx_trips',S.totalTrips);lss('sx_amax',S.allMax);
-  // Save to Firebase
-  if(window.fbSaveTrip)fbSaveTrip(trip);
-  // Daily record
+  S.totalTime+=trip.duration; S.totalTrips++;
+  if(S.maxSpd>S.allMax) S.allMax=S.maxSpd;
+  lss('sx_tdist',S.totalDist); lss('sx_ttime',S.totalTime);
+  lss('sx_trips',S.totalTrips); lss('sx_amax',S.allMax);
+  if(typeof fbSaveTrip!=='undefined') fbSaveTrip(trip);
   const today=new Date().toLocaleDateString('en-IN');
   let recs=JSON.parse(ls('sx_recs')||'{}');
-  if(!recs[today]||trip.maxSpd>recs[today].maxSpd)recs[today]={maxSpd:trip.maxSpd,dist:trip.dist,date:today};
+  if(!recs[today]||trip.maxSpd>recs[today].maxSpd) recs[today]={maxSpd:trip.maxSpd,dist:trip.dist,date:today};
   lss('sx_recs',JSON.stringify(recs));
   lastTripSummary=trip;
   updateChallengeProgress(trip);
   return trip;
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// AI DRIVING ANALYSIS
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// â”€â”€ AI DRIVING SCORE â”€â”€
 function calcDrivingScore(trip){
   let score=100;
   if(trip.accel>3)score-=Math.min(20,trip.accel*4);
@@ -1254,69 +1258,61 @@ function calcDrivingScore(trip){
   return{score,label,cls};
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// TRIP SUMMARY
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// â”€â”€ TRIP SUMMARY â”€â”€
 function generateTripSummary(trip){
   const sc=calcDrivingScore(trip);
   lastTripSummary=trip;
-  const el=document.getElementById('lastSummary');
-  el.innerHTML=`
+  document.getElementById('lastSummary').innerHTML=`
     <div class="summary-card">
       <div class="sum-title">LAST TRIP SUMMARY</div>
       <div class="sum-row"><span>Distance</span><div class="sum-val">${trip.dist} km</div></div>
       <div class="sum-row"><span>Max Speed</span><div class="sum-val">${trip.maxSpd} km/h</div></div>
       <div class="sum-row"><span>Duration</span><div class="sum-val">${Math.floor(trip.duration/60)}m ${trip.duration%60}s</div></div>
       <div class="sum-row"><span>Avg Speed</span><div class="sum-val">${trip.avg} km/h</div></div>
-      <div class="sum-row"><span>Driving Score</span><div class="sum-val">${sc.score}/100 - ${sc.label}</div></div>
-      <div class="sum-row"><span>Idle Time</span><div class="sum-val">${Math.floor(trip.idleTime/60)}m ${trip.idleTime%60}s</div></div>
-      <button class="share-btn" onclick="shareTripSummary()">SHARE TRIP SUMMARY</button>
+      <div class="sum-row"><span>Score</span><div class="sum-val">${sc.score}/100 â€” ${sc.label}</div></div>
+      <button class="share-btn" onclick="shareTripSummary()">SHARE SUMMARY</button>
     </div>`;
 }
 
 function shareTripSummary(){
-  if(!lastTripSummary){showToast('No trip to share!');return;}
+  if(!lastTripSummary){showToast('No trip!');return;}
   const t=lastTripSummary;
   const sc=calcDrivingScore(t);
-  const text=`SpeedX Pro Trip Summary\nDate: ${t.date} ${t.time}\nDistance: ${t.dist} km\nMax Speed: ${t.maxSpd} km/h\nDriving Score: ${sc.score}/100 - ${sc.label}\nhttps://hrikhiasan-design.github.io/speedx-pro`;
-  if(navigator.share){navigator.share({title:'SpeedX Pro Trip',text});}
-  else{navigator.clipboard.writeText(text).then(()=>showToast('Trip summary copied!'));}
+  const text=`SpeedX Pro Trip\nDate: ${t.date} ${t.time}\nDistance: ${t.dist} km\nMax Speed: ${t.maxSpd} km/h\nScore: ${sc.score}/100 â€” ${sc.label}`;
+  if(navigator.share) navigator.share({title:'SpeedX Trip',text});
+  else navigator.clipboard?.writeText(text).then(()=>showToast('Copied!'));
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// STATS PAGE
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// â”€â”€ STATS PAGE â”€â”€
 function loadStatsPage(){
   initChart();
   document.getElementById('stDist').textContent=S.totalDist.toFixed(1);
   document.getElementById('stTime').textContent=Math.floor(S.totalTime/3600)+'h';
   document.getElementById('stMax').textContent=S.allMax;
   document.getElementById('stTrips').textContent=S.totalTrips;
-  // AI score from last trip
   if(lastTripSummary){
     const sc=calcDrivingScore(lastTripSummary);
-    const circle=document.getElementById('scoreCircle');
-    circle.textContent=sc.score;
-    circle.className='score-circle '+sc.cls;
+    const c=document.getElementById('scoreCircle');
+    c.textContent=sc.score; c.className='score-circle '+sc.cls;
     document.getElementById('scoreLabel').textContent=sc.label;
-    document.getElementById('scoreDetail').textContent=`Accel events: ${lastTripSummary.accel} | Brakes: ${lastTripSummary.brake} | Over limit: ${lastTripSummary.overLimit}`;
+    document.getElementById('scoreDetail').textContent=`Accel: ${lastTripSummary.accel} | Brakes: ${lastTripSummary.brake} | Over limit: ${lastTripSummary.overLimit}`;
   }
   loadLb('maxSpeed',document.getElementById('lb-max'));
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// LEADERBOARD
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// â”€â”€ LEADERBOARD â”€â”€
 async function loadLb(field,btn){
-  document.querySelectorAll('.bnav ~ * .card button[id^="lb-"]').forEach(b=>{b.style.background='transparent';b.style.borderColor='var(--border2)';b.style.color='var(--muted)';});
-  if(btn){btn.style.background='rgba(124,77,255,0.15)';btn.style.borderColor='var(--purple)';btn.style.color='var(--purple)';}
+  if(btn){
+    document.querySelectorAll('#lb-max,#lb-dist').forEach(b=>{b.style.background='transparent';b.style.borderColor='var(--border2)';b.style.color='var(--muted)';});
+    btn.style.background='rgba(124,77,255,.15)'; btn.style.borderColor='var(--purple)'; btn.style.color='var(--purple)';
+  }
   const list=document.getElementById('lbList');
-  list.innerHTML='<div class="empty"><div class="big">&#8987;</div><p>Loading...</p></div>';
-  const data=window.fbLoadLeaderboard?await fbLoadLeaderboard(field):[];
-  if(!data.length){list.innerHTML='<div class="empty"><div class="big">&#127942;</div><p>No data yet - Complete a trip!</p></div>';return;}
+  list.innerHTML='<div class="empty"><div class="big">â³</div><p>Loading...</p></div>';
+  const data=typeof fbLoadLeaderboard!=='undefined'?await fbLoadLeaderboard(field):[];
+  if(!data.length){list.innerHTML='<div class="empty"><div class="big">ðŸ†</div><p>Complete a trip first!</p></div>';return;}
   const rc=['gold','silver','bronze'],tr=['1st','2nd','3rd'];
-  const vf={maxSpeed:u=>`${u.maxSpeed||0} km/h`,totalDist:u=>`${u.totalDist||0} km`,trips:u=>`${u.trips||0} trips`}[field];
-  const me=window.fbAuth?.currentUser?.uid;
+  const vf={maxSpeed:u=>`${u.maxSpeed||0} km/h`,totalDist:u=>`${u.totalDist||0} km`}[field]||(u=>`${u.trips||0} trips`);
+  const me=auth?.currentUser?.uid;
   list.innerHTML=data.map((u,i)=>`
     <div class="lb-row ${u.uid===me?'me':''}">
       <div class="lb-rank ${rc[i]||'normal'}">${tr[i]||'#'+(i+1)}</div>
@@ -1326,29 +1322,27 @@ async function loadLb(field,btn){
     </div>`).join('');
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// HISTORY
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// â”€â”€ HISTORY â”€â”€
 async function loadHistory(){
   const list=document.getElementById('histList');
   let trips=tripHistory;
-  if(window.fbLoadTrips&&window.fbAuth?.currentUser){
+  if(typeof fbLoadTrips!=='undefined'&&auth?.currentUser){
     const fbTrips=await fbLoadTrips();
-    if(fbTrips.length)trips=fbTrips;
+    if(fbTrips.length) trips=fbTrips;
   }
-  if(!trips.length){list.innerHTML='<div class="empty"><div class="big">&#128241;</div><p>NO TRIPS YET</p></div>';return;}
-  const mi={walking:'&#128694;',bike:'&#128690;',car:'&#128665;'};
+  if(!trips.length){list.innerHTML='<div class="empty"><div class="big">ðŸ“±</div><p>NO TRIPS YET</p></div>';return;}
+  const mi={walking:'ðŸš¶',bike:'ðŸš²',car:'ðŸš—'};
   list.innerHTML=trips.map(t=>`
     <div class="hist-item">
-      <div class="hist-icon">${mi[t.mode]||'&#128694;'}</div>
+      <div class="hist-icon">${mi[t.mode]||'ðŸš¶'}</div>
       <div class="hist-info">
-        <div class="hist-nm">Trip - ${t.date} ${t.time}</div>
+        <div class="hist-nm">Trip â€” ${t.date} ${t.time}</div>
         <div class="hist-mt"><span>${t.dist} km</span><span>${Math.floor(t.duration/60)}m ${t.duration%60}s</span><span>Avg: ${t.avg} km/h</span></div>
       </div>
       <div style="text-align:right;">
         <div class="hist-spd">${t.maxSpd}</div>
-        <div style="font-size:8px;color:var(--muted);">MAX KMH</div>
-        <button class="del-btn" onclick="delTrip(${t.id})">&#128465;</button>
+        <div style="font-size:7px;color:var(--muted);">MAX KMH</div>
+        <button class="del-btn" onclick="delTrip(${t.id})">ðŸ—‘ï¸</button>
       </div>
     </div>`).join('');
 }
@@ -1360,45 +1354,60 @@ function delTrip(id){
   showToast('Trip deleted');
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// MAP
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// â”€â”€ MAP â”€â”€
+function initMiniMap(){
+  if(miniMapInited)return;
+  miniMapInited=true;
+  const center=[S.lat||25.734, S.lon||88.002];
+  miniLeafMap=L.map('miniMap',{zoomControl:false,attributionControl:false,dragging:false,scrollWheelZoom:false,doubleClickZoom:false,touchZoom:false}).setView(center,15);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(miniLeafMap);
+  const ico=L.divIcon({html:'<div style="width:12px;height:12px;border-radius:50%;background:#00e5ff;border:2px solid #fff;box-shadow:0 0 10px #00e5ff;"></div>',iconSize:[12,12],iconAnchor:[6,6],className:''});
+  miniMapMarker=L.marker(center,{icon:ico}).addTo(miniLeafMap);
+  miniRouteLine=L.polyline([],{color:'#00e5ff',weight:3,opacity:.8}).addTo(miniLeafMap);
+}
+
 function initMap(){
   if(mapInited)return;
   mapInited=true;
-  const center=[S.lat||25.734,S.lon||88.002];
+  const center=[S.lat||25.734, S.lon||88.002];
   leafMap=L.map('map',{zoomControl:true}).setView(center,15);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'OpenStreetMap',maxZoom:19}).addTo(leafMap);
-  const ico=L.divIcon({html:'<div style="width:16px;height:16px;border-radius:50%;background:#00e5ff;border:3px solid #fff;box-shadow:0 0 12px #00e5ff;"></div>',iconSize:[16,16],iconAnchor:[8,8],className:''});
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'Â© OpenStreetMap',maxZoom:19}).addTo(leafMap);
+  const ico=L.divIcon({html:'<div style="width:14px;height:14px;border-radius:50%;background:#00e5ff;border:2px solid #fff;box-shadow:0 0 12px #00e5ff;"></div>',iconSize:[14,14],iconAnchor:[7,7],className:''});
   mapMarker=L.marker(center,{icon:ico}).addTo(leafMap);
-  routeLine=L.polyline([],{color:'#00e5ff',weight:4,opacity:0.8}).addTo(leafMap);
+  routeLine=L.polyline([],{color:'#00e5ff',weight:4,opacity:.8}).addTo(leafMap);
 }
 
-function updateMapMarker(lat,lon){
-  if(!mapMarker||!leafMap)return;
-  mapMarker.setLatLng([lat,lon]);
-  routePts.push([lat,lon]);
-  if(S.running)routeLine.setLatLngs(routePts);
-  if(document.getElementById('page-map').classList.contains('active'))leafMap.panTo([lat,lon]);
+function updateMapMarkers(lat,lon){
+  // Full map
+  if(mapMarker&&leafMap){
+    mapMarker.setLatLng([lat,lon]);
+    routePts.push([lat,lon]);
+    if(S.running) routeLine.setLatLngs(routePts);
+    if(document.getElementById('page-map').classList.contains('active')) leafMap.panTo([lat,lon]);
+  }
+  // Mini map
+  if(miniMapMarker&&miniLeafMap){
+    miniMapMarker.setLatLng([lat,lon]);
+    if(S.running) miniRouteLine.setLatLngs(routePts);
+    miniLeafMap.panTo([lat,lon]);
+  }
 }
 
 function saveLocation(){
-  if(!S.lat){showToast('No GPS location!');return;}
+  if(!S.lat){showToast('No GPS!');return;}
   const n='Location '+(JSON.parse(ls('sx_locs')||'[]').length+1);
   const locs=JSON.parse(ls('sx_locs')||'[]');
   locs.push({n,lat:S.lat,lon:S.lon,t:new Date().toLocaleString('en-IN')});
   lss('sx_locs',JSON.stringify(locs));
-  if(leafMap)L.marker([S.lat,S.lon]).addTo(leafMap).bindPopup(n).openPopup();
+  if(leafMap) L.marker([S.lat,S.lon]).addTo(leafMap).bindPopup(n).openPopup();
   showToast('Location saved: '+n);
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// CHALLENGES
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// â”€â”€ CHALLENGES â”€â”€
 const CHALLENGES=[
-  {id:'c1',name:'5 km Walk',target:5,unit:'km',icon:'&#128694;',field:'dist'},
-  {id:'c2',name:'Speed below limit',target:1,unit:'trip',icon:'&#9651;',field:'noOverLimit'},
-  {id:'c3',name:'10 min Drive',target:600,unit:'sec',icon:'&#9201;',field:'duration'},
+  {id:'c1',name:'5 km Walk',target:5,unit:'km',icon:'ðŸš¶',field:'dist'},
+  {id:'c2',name:'Stay Under Limit',target:1,unit:'trip',icon:'âš¡',field:'noOverLimit'},
+  {id:'c3',name:'10 min Drive',target:600,unit:'sec',icon:'â±ï¸',field:'duration'},
 ];
 let chalProgress=JSON.parse(ls('sx_chals')||'{}');
 
@@ -1410,84 +1419,73 @@ function loadChallenges(){
   el.innerHTML=CHALLENGES.map(c=>{
     const prog=chalProgress[c.id]||0;
     const pct=Math.min(100,Math.round((prog/c.target)*100));
-    const done=pct>=100;
     return`<div class="chal-item">
       <div class="chal-icon">${c.icon}</div>
       <div class="chal-info">
         <div class="chal-name">${c.name}</div>
         <div class="chal-prog"><div class="chal-fill" style="width:${pct}%"></div></div>
-        <div style="font-size:9px;color:var(--muted);margin-top:3px;">${prog.toFixed?prog.toFixed(1):prog} / ${c.target} ${c.unit}</div>
+        <div style="font-size:8px;color:var(--muted);margin-top:2px;">${(prog.toFixed?prog.toFixed(1):prog)} / ${c.target} ${c.unit}</div>
       </div>
-      <div class="chal-badge ${done?'badge-done':'badge-pend'}">${done?'DONE':''+pct+'%'}</div>
+      <div class="chal-badge ${pct>=100?'badge-done':'badge-pend'}">${pct>=100?'DONE':pct+'%'}</div>
     </div>`;
   }).join('');
 }
 
 function updateChallengeProgress(trip){
   const today=new Date().toLocaleDateString('en-IN');
-  if(chalProgress.date!==today){chalProgress={date:today};}
+  if(chalProgress.date!==today) chalProgress={date:today};
   chalProgress['c1']=(chalProgress['c1']||0)+trip.dist;
   chalProgress['c3']=(chalProgress['c3']||0)+trip.duration;
-  if(trip.overLimit===0)chalProgress['c2']=(chalProgress['c2']||0)+1;
+  if(trip.overLimit===0) chalProgress['c2']=(chalProgress['c2']||0)+1;
   lss('sx_chals',JSON.stringify(chalProgress));
   loadChallenges();
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// WEATHER (FREE API)
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// â”€â”€ WEATHER â”€â”€
 async function fetchWeather(){
   if(!S.lat){setTimeout(fetchWeather,5000);return;}
   try{
     const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${S.lat||25.734}&longitude=${S.lon||88.002}&current_weather=true`);
     const d=await r.json();
     if(d.current_weather){
-      const w=d.current_weather;
       const chip=document.getElementById('weatherChip');
-      chip.textContent=Math.round(w.temperature)+'C';
+      chip.textContent=Math.round(d.current_weather.temperature)+'Â°C';
       chip.style.display='block';
-      chip.title='Wind: '+w.windspeed+' km/h';
     }
   }catch(e){}
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// BATTERY MONITOR
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// â”€â”€ BATTERY â”€â”€
 async function initBatteryMonitor(){
   if(!navigator.getBattery)return;
   try{
     const b=await navigator.getBattery();
-    function updateBattery(){
+    function upd(){
       const pct=Math.round(b.level*100);
       document.getElementById('battLevel').textContent=pct+'%';
       S.lowBattery=pct<20;
-      if(S.lowBattery)showToast('Battery low - GPS saver mode ON');
+      if(S.lowBattery)showToast('Battery low!');
     }
-    updateBattery();
-    b.addEventListener('levelchange',updateBattery);
+    upd();
+    b.addEventListener('levelchange',upd);
   }catch(e){}
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// EXPORT CSV
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// â”€â”€ EXPORT CSV â”€â”€
 function exportCSV(){
   if(!tripHistory.length){showToast('No data!');return;}
-  let csv='Date,Time,Distance(km),Max Speed(km/h),Avg Speed(km/h),Duration(sec),Mode,Driving Score\n';
+  let csv='Date,Time,Distance(km),Max Speed(km/h),Avg Speed(km/h),Duration(sec),Mode,Score\n';
   tripHistory.forEach(t=>{
     const sc=calcDrivingScore(t);
     csv+=`${t.date},${t.time},${t.dist},${t.maxSpd},${t.avg},${t.duration},${t.mode},${sc.score}\n`;
   });
   const a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
-  a.download='speedx_trips.csv';a.click();
+  a.download='speedx_trips.csv'; a.click();
   showToast('CSV exported!');
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// PROFILE
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// â”€â”€ PROFILE â”€â”€
 function handlePhoto(e){
   const f=e.target.files[0];if(!f)return;
   const r=new FileReader();
@@ -1495,11 +1493,12 @@ function handlePhoto(e){
     const src=ev.target.result;
     lss('sx_photo',src);
     document.getElementById('topAv').innerHTML=`<img src="${src}">`;
-    document.getElementById('profileAv').innerHTML=`<img src="${src}"><div class="pav-ov">&#128247;</div>`;
+    document.getElementById('profileAv').innerHTML=`<img src="${src}"><div class="pav-ov">ðŸ“·</div>`;
     showToast('Photo updated!');
   };
   r.readAsDataURL(f);
 }
+
 function saveName(){
   const n=document.getElementById('nameInp').value.trim();
   if(!n){showToast('Enter a name!');return;}
@@ -1508,26 +1507,39 @@ function saveName(){
   document.getElementById('topAv').textContent=n.charAt(0).toUpperCase();
   showToast('Name saved!');
 }
+
 function clearData(){
   if(!confirm('Delete all history and records?'))return;
   ['sx_history','sx_recs','sx_tdist','sx_ttime','sx_trips','sx_amax','sx_chals'].forEach(k=>localStorage.removeItem(k));
-  tripHistory=[];S.totalDist=0;S.totalTime=0;S.totalTrips=0;S.allMax=0;
+  tripHistory=[]; S.totalDist=0; S.totalTime=0; S.totalTrips=0; S.allMax=0;
   showToast('All data cleared!');
 }
 
-// Limit
 function chgLimit(d){S.limit=Math.max(10,Math.min(220,S.limit+d));document.getElementById('limVal').textContent=S.limit;drawGauge(S.speed);}
 
-// Close modal on outside click
-document.getElementById('modeModal').addEventListener('click',function(e){if(e.target===this)this.classList.add('hide');});
-
-// Load saved prefs
+// â”€â”€ INIT â”€â”€
 (function init(){
   const ph=ls('sx_photo');
-  if(ph){document.getElementById('topAv').innerHTML=`<img src="${ph}">`;document.getElementById('profileAv').innerHTML=`<img src="${ph}"><div class="pav-ov">&#128247;</div>`;}
+  if(ph){document.getElementById('topAv').innerHTML=`<img src="${ph}">`;document.getElementById('profileAv').innerHTML=`<img src="${ph}"><div class="pav-ov">ðŸ“·</div>`;}
   const n=ls('sx_name');if(n&&document.getElementById('nameInp'))document.getElementById('nameInp').value=n;
   if(ls('sx_voice')==='1'){S.voiceOn=true;document.getElementById('voiceTgl').checked=true;document.getElementById('voiceSlider').style.background='var(--green)';}
 })();
 </script>
+
+<!-- TRIP BUTTONS â€” outside pages, pinned above nav -->
+<style>
+.trip-bar{position:fixed;bottom:52px;left:0;right:0;z-index:300;display:flex;gap:7px;padding:8px 10px;background:var(--glass);backdrop-filter:blur(20px);border-top:1px solid var(--border);}
+.tbtn{flex:1;height:44px;border-radius:11px;border:none;font-family:'Orbitron',monospace;font-size:10px;font-weight:900;letter-spacing:1px;cursor:pointer;transition:all .2s;}
+.tbtn:disabled{opacity:.35;cursor:not-allowed;}
+.btn-start{background:linear-gradient(135deg,#00c853,#00e676);color:#000;}
+.btn-stop{background:linear-gradient(135deg,#b71c1c,#ff1744);color:#fff;}
+.btn-reset{background:transparent;border:1px solid var(--border2)!important;color:var(--muted);flex:.5;}
+</style>
+<div class="trip-bar" id="tripBar">
+  <button class="tbtn btn-start" id="btnStart" onclick="startTrip()">â–¶ START</button>
+  <button class="tbtn btn-stop" id="btnStop" onclick="stopTrip()" disabled>â–  STOP</button>
+  <button class="tbtn btn-reset" onclick="resetTrip()">RESET</button>
+</div>
+
 </body>
 </html>
