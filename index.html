@@ -12,13 +12,14 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 
-<!-- Firebase Compat SDK - Works everywhere including APK WebView -->
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-analytics-compat.js"></script>
-<script>
-var firebaseConfig = {
+<!-- Firebase v12.11.0 -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js";
+import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-analytics.js";
+import { getAuth, signInWithPopup, GoogleAuthProvider, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
+import { getFirestore, doc, setDoc, getDoc, collection, addDoc, query, where, orderBy, limit, getDocs, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
+
+const firebaseConfig = {
   apiKey: "AIzaSyBNXyjGaSkkZHDDe3ODD_El7CamAldvhhA",
   authDomain: "speedx-pro.firebaseapp.com",
   projectId: "speedx-pro",
@@ -28,151 +29,137 @@ var firebaseConfig = {
   measurementId: "G-S2MRNJRT2E"
 };
 
-firebase.initializeApp(firebaseConfig);
-var _fbAuth = firebase.auth();
-var _fbDb = firebase.firestore();
-try { firebase.analytics(); } catch(e) {}
+const app = initializeApp(firebaseConfig);
+const analytics = getAnalytics(app);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const gProvider = new GoogleAuthProvider();
+window._auth = auth;
+window._db = db;
 
 // GOOGLE LOGIN
-window.doGoogleLogin = function() {
-  setLoader(true, 'Signing in with Google...');
-  var provider = new firebase.auth.GoogleAuthProvider();
-  _fbAuth.signInWithPopup(provider)
-    .then(function(r){ return _saveUser(r.user); })
-    .catch(function(e){
-      setLoader(false);
-      showAuthErr(e.code==='auth/popup-closed-by-user'?'Login cancelled.':'Google login failed: '+e.message);
-    });
+window.doGoogleLogin = async () => {
+  try {
+    setLoader(true, 'Signing in with Google...');
+    const r = await signInWithPopup(auth, gProvider);
+    await _saveUser(r.user);
+  } catch(e) {
+    setLoader(false);
+    showAuthErr(e.code === 'auth/popup-closed-by-user' ? 'Login cancelled.' : 'Google login failed: ' + e.message);
+  }
 };
 
 // EMAIL LOGIN
-window.doEmailLogin = function(email, pass) {
-  setLoader(true, 'Logging in...');
-  _fbAuth.signInWithEmailAndPassword(email, pass)
-    .catch(function(e){
-      setLoader(false);
-      showAuthErr(e.code==='auth/wrong-password'||e.code==='auth/user-not-found'||e.code==='auth/invalid-credential'?'Wrong email or password.':'Login failed.');
-    });
+window.doEmailLogin = async (email, pass) => {
+  try {
+    setLoader(true, 'Logging in...');
+    await signInWithEmailAndPassword(auth, email, pass);
+  } catch(e) {
+    setLoader(false);
+    showAuthErr(e.code === 'auth/invalid-credential' ? 'Wrong email or password.' : 'Login failed.');
+  }
 };
 
 // REGISTER
-window.doRegister = function(name, email, pass) {
-  setLoader(true, 'Creating account...');
-  _fbAuth.createUserWithEmailAndPassword(email, pass)
-    .then(function(r){ return _saveUser(r.user, name); })
-    .catch(function(e){
-      setLoader(false);
-      if(e.code==='auth/email-already-in-use') showAuthErr('Email already registered.');
-      else if(e.code==='auth/weak-password') showAuthErr('Password must be 6+ characters.');
-      else showAuthErr('Registration failed.');
-    });
+window.doRegister = async (name, email, pass) => {
+  try {
+    setLoader(true, 'Creating account...');
+    const r = await createUserWithEmailAndPassword(auth, email, pass);
+    await _saveUser(r.user, name);
+  } catch(e) {
+    setLoader(false);
+    if (e.code === 'auth/email-already-in-use') showAuthErr('Email already registered.');
+    else if (e.code === 'auth/weak-password') showAuthErr('Password must be 6+ characters.');
+    else showAuthErr('Registration failed.');
+  }
 };
 
 // FORGOT PASSWORD
-window.doForgotPassword = function(email) {
-  if(!email){ showAuthErr('Enter your email.'); return; }
-  setLoader(true, 'Sending reset email...');
-  _fbAuth.sendPasswordResetEmail(email)
-    .then(function(){
-      setLoader(false);
-      showAuthOk('Password reset email sent! Check your inbox.');
-    })
-    .catch(function(){ setLoader(false); showAuthErr('Invalid email address.'); });
+window.doForgotPassword = async (email) => {
+  if (!email) { showAuthErr('Enter your email.'); return; }
+  try {
+    setLoader(true, 'Sending reset email...');
+    await sendPasswordResetEmail(auth, email);
+    setLoader(false);
+    showAuthOk('Password reset email sent! Check your inbox.');
+  } catch(e) { setLoader(false); showAuthErr('Invalid email address.'); }
 };
 
 // LOGOUT
-window.doLogout = function() {
+window.doLogout = async () => {
   autoSaveOnExit();
-  _fbAuth.signOut();
+  await signOut(auth);
 };
 
 // SAVE USER TO FIRESTORE
-function _saveUser(user, name) {
-  var ref = _fbDb.collection('users').doc(user.uid);
-  return ref.get().then(function(snap){
-    if(!snap.exists){
-      var data = {
-        uid: user.uid,
-        name: name||user.displayName||'SpeedX User',
-        email: user.email,
-        photoURL: user.photoURL||'',
-        trips: 0, totalDist: 0, maxSpeed: 0, totalTime: 0,
-        joined: firebase.firestore.FieldValue.serverTimestamp()
-      };
-      return ref.set(data).then(function(){ window._userData=data; });
-    } else {
-      window._userData = snap.data();
-      return Promise.resolve();
-    }
-  });
+async function _saveUser(user, name) {
+  const ref = doc(db, 'users', user.uid);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) {
+    const data = {
+      uid: user.uid,
+      name: name || user.displayName || 'SpeedX User',
+      email: user.email,
+      photoURL: user.photoURL || '',
+      trips: 0, totalDist: 0, maxSpeed: 0, totalTime: 0,
+      joined: serverTimestamp()
+    };
+    await setDoc(ref, data);
+    window._userData = data;
+  } else {
+    window._userData = snap.data();
+  }
 }
 
-// SAVE TRIP
-window._saveTrip = function(trip) {
-  if(!_fbAuth.currentUser) return;
-  _fbDb.collection('trips').add(Object.assign({}, trip, {
-    uid: _fbAuth.currentUser.uid,
-    ts: firebase.firestore.FieldValue.serverTimestamp()
-  })).then(function(){
-    var ref = _fbDb.collection('users').doc(_fbAuth.currentUser.uid);
-    ref.get().then(function(snap){
-      if(snap.exists){
-        var d = snap.data();
-        var u = {
-          trips: (d.trips||0)+1,
-          totalDist: parseFloat(((d.totalDist||0)+trip.dist).toFixed(2)),
-          maxSpeed: Math.max(d.maxSpeed||0, trip.maxSpd),
-          totalTime: (d.totalTime||0)+trip.duration
-        };
-        ref.update(u).then(function(){
-          window._userData = Object.assign({}, d, u);
-          _fbDb.collection('leaderboard').doc(_fbAuth.currentUser.uid).set({
-            uid: _fbAuth.currentUser.uid,
-            name: window._userData.name||'User',
-            maxSpeed: window._userData.maxSpeed,
-            totalDist: window._userData.totalDist,
-            trips: window._userData.trips
-          });
-        });
-      }
-    });
-  }).catch(function(e){ console.warn('Save trip:', e); });
+// SAVE TRIP TO FIREBASE
+window._saveTrip = async (trip) => {
+  if (!auth.currentUser) return;
+  try {
+    await addDoc(collection(db, 'trips'), { ...trip, uid: auth.currentUser.uid, ts: serverTimestamp() });
+    const ref = doc(db, 'users', auth.currentUser.uid);
+    const snap = await getDoc(ref);
+    if (snap.exists()) {
+      const d = snap.data();
+      const u = { ...d, trips: (d.trips||0)+1, totalDist: parseFloat(((d.totalDist||0)+trip.dist).toFixed(2)), maxSpeed: Math.max(d.maxSpeed||0, trip.maxSpd), totalTime: (d.totalTime||0)+trip.duration };
+      await setDoc(ref, u);
+      window._userData = u;
+      await setDoc(doc(db, 'leaderboard', auth.currentUser.uid), { uid: auth.currentUser.uid, name: u.name, maxSpeed: u.maxSpeed, totalDist: u.totalDist, trips: u.trips });
+    }
+  } catch(e) { console.warn('Firebase save:', e); }
 };
 
 // LOAD TRIPS
-window._loadTrips = function() {
-  if(!_fbAuth.currentUser) return Promise.resolve([]);
-  return _fbDb.collection('trips')
-    .where('uid','==',_fbAuth.currentUser.uid)
-    .orderBy('ts','desc').limit(30).get()
-    .then(function(snap){ return snap.docs.map(function(d){ return d.data(); }); })
-    .catch(function(){ return []; });
+window._loadTrips = async () => {
+  if (!auth.currentUser) return [];
+  try {
+    const q = query(collection(db,'trips'), where('uid','==',auth.currentUser.uid), orderBy('ts','desc'), limit(30));
+    return (await getDocs(q)).docs.map(d => d.data());
+  } catch(e) { return []; }
 };
 
 // LOAD LEADERBOARD
-window._loadLb = function(field) {
-  return _fbDb.collection('leaderboard')
-    .orderBy(field,'desc').limit(10).get()
-    .then(function(snap){ return snap.docs.map(function(d){ return d.data(); }); })
-    .catch(function(){ return []; });
+window._loadLb = async (field) => {
+  try {
+    const q = query(collection(db,'leaderboard'), orderBy(field,'desc'), limit(10));
+    return (await getDocs(q)).docs.map(d => d.data());
+  } catch(e) { return []; }
 };
 
-// AUTH STATE LISTENER
-_fbAuth.onAuthStateChanged(function(user) {
+// AUTH STATE
+onAuthStateChanged(auth, async (user) => {
   setLoader(false);
-  if(user){
+  if (user) {
     window._user = user;
-    window._auth = _fbAuth;
-    _fbDb.collection('users').doc(user.uid).get().then(function(snap){
-      if(snap.exists) window._userData = snap.data();
-      else _saveUser(user);
-      window.onAuthReady();
-    });
+    const ref = doc(db, 'users', user.uid);
+    const snap = await getDoc(ref);
+    if (snap.exists()) window._userData = snap.data();
+    else await _saveUser(user);
+    window.onAuthReady();
   } else {
     window.onSignedOut();
   }
 });
-
+</script>
 
 <style>
 :root {
@@ -203,21 +190,11 @@ _fbAuth.onAuthStateChanged(function(user) {
 html, body { height:100%; overflow:hidden; background:var(--bg); color:var(--text); font-family:'Rajdhani',sans-serif; font-size:15px; }
 
 /* LOADER */
-#loader { position:fixed; inset:0; background:#07101f; z-index:9999; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:20px; }
+#loader { position:fixed; inset:0; background:rgba(7,16,31,0.98); z-index:9999; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; }
 #loader.hide { display:none !important; }
-.ld-logo { font-family:'Orbitron',monospace; font-size:32px; font-weight:900; color:#00e5ff; letter-spacing:5px; text-shadow:0 0 30px rgba(0,229,255,0.4); }
-.ld-logo span { color:#ff1744; }
-.ld-tag { font-family:'Orbitron',monospace; font-size:9px; color:#364e63; letter-spacing:4px; }
-.ld-bar-wrap { width:280px; }
-.ld-bar-track { width:100%; height:6px; background:#162c4a; border-radius:3px; overflow:hidden; }
-.ld-bar-fill { height:100%; width:0%; background:linear-gradient(90deg,#00e5ff,#00e676); border-radius:3px; animation:ldprog 2.5s ease-in-out forwards; }
-@keyframes ldprog { 0%{width:0%} 30%{width:45%} 60%{width:72%} 85%{width:88%} 100%{width:95%} }
-.ld-txt { font-family:'Orbitron',monospace; font-size:10px; color:#364e63; letter-spacing:2px; }
-.ld-icons { display:flex; align-items:center; width:280px; margin-top:4px; }
-.ld-runner { font-size:24px; animation:ldrun 0.5s steps(2) infinite; }
-@keyframes ldrun { 0%{transform:translateX(0)} 100%{transform:translateX(4px)} }
-.ld-rocket { font-size:24px; margin-left:auto; animation:ldrocket 0.8s ease-in-out infinite alternate; }
-@keyframes ldrocket { 0%{transform:translateY(0)} 100%{transform:translateY(-5px)} }
+.spin { width:46px; height:46px; border:3px solid var(--border); border-top-color:var(--neon); border-radius:50%; animation:spin 0.8s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+.load-txt { font-family:'Orbitron',monospace; font-size:11px; color:var(--neon); letter-spacing:2px; text-align:center; padding:0 20px; }
 
 /* AUTH SCREEN */
 #authScreen { position:fixed; inset:0; background:var(--bg); z-index:5000; display:none; flex-direction:column; align-items:center; justify-content:center; padding:16px; gap:12px; overflow-y:auto; }
@@ -331,7 +308,7 @@ html, body { height:100%; overflow:hidden; background:var(--bg); color:var(--tex
 .i-lbl { font-size:8px; color:var(--muted); letter-spacing:1px; margin-top:2px; }
 
 /* MINI MAP */
-#miniMap { width:100%; height:140px; border-radius:11px; overflow:hidden; border:1px solid var(--border); background:var(--card2); }
+#miniMap { width:100%; height:140px; border-radius:11px; overflow:hidden; border:1px solid var(--border); }
 
 /* AD */
 .ad { background:var(--card2); border:1px solid var(--border); border-radius:10px; padding:7px 11px; display:flex; align-items:center; gap:7px; position:relative; overflow:hidden; }
@@ -467,16 +444,8 @@ html, body { height:100%; overflow:hidden; background:var(--bg); color:var(--tex
 
 <!-- LOADER -->
 <div id="loader">
-  <div class="ld-logo">SPEED<span>X</span></div>
-  <div class="ld-tag">PRO - GPS SPEEDOMETER</div>
-  <div class="ld-bar-wrap">
-    <div class="ld-icons">
-      <div class="ld-runner">&#127939;</div>
-      <div class="ld-rocket">&#128640;</div>
-    </div>
-    <div class="ld-bar-track"><div class="ld-bar-fill" id="ldFill"></div></div>
-  </div>
-  <div class="ld-txt" id="loadTxt">CONNECTING TO FIREBASE...</div>
+  <div class="spin"></div>
+  <div class="load-txt" id="loadTxt">SPEEDX PRO<br>Connecting...</div>
 </div>
 
 <!-- TOAST -->
@@ -525,7 +494,7 @@ html, body { height:100%; overflow:hidden; background:var(--bg); color:var(--tex
   <div class="perm" id="permModal">
     <div class="perm-icon">&#127757;</div>
     <div class="perm-title">LOCATION ACCESS</div>
-    <div class="perm-sub">SpeedX Pro needs GPS access to track your speed, distance and route in real time. If denied, go to Settings > App Permissions > Location > Allow.</div>
+    <div class="perm-sub">SpeedX Pro needs GPS access to track your speed, distance and route in real time.</div>
     <button class="perm-allow" onclick="startGPS()">ALLOW LOCATION</button>
     <div class="perm-info">Your location is never stored on external servers.</div>
   </div>
@@ -722,7 +691,10 @@ html, body { height:100%; overflow:hidden; background:var(--bg); color:var(--tex
         <div class="s-left"><div class="s-icon">&#128266;</div><div><div class="s-lbl-main">Voice Alerts</div><div class="s-sub">Speed limit warning</div></div></div>
         <label class="sw-wrap"><input type="checkbox" class="sw-inp" id="voiceTgl" onchange="toggleVoice()"><span class="sw-sl"></span></label>
       </div>
-
+      <div class="s-row" onclick="clearData()">
+        <div class="s-left"><div class="s-icon">&#128465;</div><div><div class="s-lbl-main">Clear All Data</div><div class="s-sub">Delete history and records</div></div></div>
+        <div style="color:var(--muted);font-size:13px;">&#8250;</div>
+      </div>
       <button class="btn-out" onclick="doLogout()">&#128682; LOGOUT</button>
     </div>
 
@@ -803,12 +775,7 @@ applyTheme();
 function setLoader(on, txt){
   var el=document.getElementById('loader');
   if(on){ el.classList.remove('hide'); if(txt) document.getElementById('loadTxt').textContent=txt; }
-  else {
-    var fill=document.getElementById('ldFill');
-    if(fill){ fill.style.animation='none'; fill.style.width='100%'; fill.style.background='linear-gradient(90deg,#00e5ff,#00e676)'; }
-    var ltxt=document.getElementById('loadTxt'); if(ltxt) ltxt.textContent='READY!';
-    setTimeout(function(){ el.classList.add('hide'); }, 400);
-  }
+  else { el.classList.add('hide'); }
 }
 function showAuthErr(m){ var e=document.getElementById('aErr'); e.textContent=m; e.style.display='block'; document.getElementById('aOk').style.display='none'; setLoader(false); }
 function showAuthOk(m){ var e=document.getElementById('aOk'); e.textContent=m; e.style.display='block'; document.getElementById('aErr').style.display='none'; setLoader(false); }
@@ -920,11 +887,6 @@ setMode(_ls('sx_mode')||'walking');
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // GPS â€” SMART FILTERING
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-function retryGPS(){
-  document.getElementById('gDot').className='g-dot search';
-  document.getElementById('gTxt').textContent='Retrying GPS...';
-  startGPS();
-}
 function startGPS(){
   document.getElementById('permModal').classList.add('hide');
   if(!navigator.geolocation){
@@ -943,11 +905,7 @@ function startGPS(){
     },
     function(err){
       document.getElementById('gDot').className='g-dot err';
-      if(err.code===1){
-        document.getElementById('gTxt').innerHTML='GPS denied. <span onclick="retryGPS()" style="color:#00e5ff;text-decoration:underline;cursor:pointer;">TAP TO RETRY</span>';
-      } else {
-        document.getElementById('gTxt').innerHTML='GPS error. <span onclick="retryGPS()" style="color:#00e5ff;text-decoration:underline;cursor:pointer;">TAP TO RETRY</span>';
-      }
+      document.getElementById('gTxt').textContent='GPS access denied. Check device settings.';
     },
     { enableHighAccuracy:true, timeout:12000 }
   );
@@ -1439,7 +1397,7 @@ function fetchWeather(){
       if(d.current_weather){
         var w=d.current_weather;
         var chip=document.getElementById('wChip');
-        chip.textContent=Math.round(w.temperature)+' C';
+        chip.textContent=Math.round(w.temperature)+'Â°C';
         chip.style.display='block';
         weatherLoaded=true;
       }
